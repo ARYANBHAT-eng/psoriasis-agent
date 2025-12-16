@@ -1,221 +1,331 @@
-Psoriasis Agent
-A Full-Stack, ML-Powered Health Tracking & Flare Prediction System
+<div align="center">
 
-Psoriasis Agent is a full-stack health analytics application designed to help individuals with psoriasis and psoriatic arthritis track daily symptoms, analyze trends, and predict flare risks using machine learning.
+# 🩺 Psoriasis Agent
 
-The system combines structured daily health logging, backend REST APIs, machine learning–based flare prediction, and an interactive Streamlit dashboard.
+### A Full-Stack, ML-Powered Health Tracking & Flare Prediction System
 
-FEATURES
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)](https://streamlit.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Daily symptom tracking
+**Psoriasis Agent** is a comprehensive health analytics application designed to help individuals with psoriasis and psoriatic arthritis track daily symptoms, analyze trends, and predict flare risks using machine learning.
 
-Weekly and monthly health summaries
+[Features](#-features) • [Tech Stack](#-tech-stack) • [Setup](#-setup-instructions) • [Screenshots](#-screenshots) • [License](#-license)
 
-Machine learning–based flare risk prediction
+</div>
 
-Color-band risk trend visualization
+---
 
-SQLite local database
+## 🌟 Features
 
-FastAPI backend
+<table>
+<tr>
+<td width="50%">
 
-Streamlit interactive dashboard
+### 📊 Health Tracking
+- **Daily symptom logging** with 10+ health metrics
+- **Weekly & monthly** health summaries
+- **Interactive visualizations** with trend analysis
+- **SQLite database** for local data storage
 
-TECH STACK
+</td>
+<td width="50%">
 
-Backend:
+### 🤖 Machine Learning
+- **Flare risk prediction** using Logistic Regression
+- **Risk level classification** (LOW/MEDIUM/HIGH)
+- **Key factor identification** for flare triggers
+- **Color-coded risk bands** for visual analysis
 
-Python
+</td>
+</tr>
+</table>
 
-FastAPI
+---
 
-SQLAlchemy
+## 📸 Screenshots
 
-SQLite
+<div align="center">
 
-Scikit-Learn
+### Daily Symptom Tracking
+<img src="screenshots/DailyEntries.png" alt="Daily Entries Table" width="90%">
 
-Pandas
+*Track and view all your daily health entries in an organized table format*
 
-Frontend:
+<br><br>
 
-Streamlit
+### Add New Entry
+<img src="screenshots/Entry.png" alt="Add Entry Form" width="90%">
 
-Plotly
+*Intuitive form to log daily symptoms with interactive sliders*
 
-Requests
+<br><br>
 
-PROJECT STRUCTURE
+### Flare Risk Prediction
+<img src="screenshots/FlareRiskPrediction.png" alt="Flare Risk Prediction" width="45%">
 
+*ML-powered prediction showing probability and key risk factors*
+
+<br><br>
+
+### Symptom Trend Analysis
+<img src="screenshots/SymptomTrends.png" alt="Symptom Trends" width="90%">
+
+*Visual trends with color-coded risk bands to identify patterns*
+
+</div>
+
+---
+
+## 🛠️ Tech Stack
+
+<table>
+<tr>
+<td valign="top" width="50%">
+
+### Backend
+```
+🐍 Python
+⚡ FastAPI
+🗄️ SQLAlchemy
+💾 SQLite
+🤖 Scikit-Learn
+📊 Pandas
+```
+
+</td>
+<td valign="top" width="50%">
+
+### Frontend
+```
+🎨 Streamlit
+📈 Plotly
+🌐 Requests
+```
+
+</td>
+</tr>
+</table>
+
+---
+
+## 📁 Project Structure
+
+```
 psoriasis-agent/
+│
+├── backend/
+│   ├── app/
+│   │   ├── routers/
+│   │   │   ├── entries.py
+│   │   │   └── ml.py
+│   │   ├── crud.py
+│   │   ├── database.py
+│   │   ├── models.py
+│   │   └── schemas.py
+│   ├── ml_model.py
+│   ├── seeddata.py
+│   ├── main.py
+│   └── requirements.txt
+│
+├── frontend/
+│   └── app.py
+│
+├── screenshots/
+│   ├── DailyEntries.png
+│   ├── Entry.png
+│   ├── FlareRiskPrediction.png
+│   └── SymptomTrends.png
+│
+├── .gitignore
+├── LICENSE
+└── README.md
+```
 
-backend/
-app/
-routers/
-entries.py
-ml.py
-crud.py
-database.py
-models.py
-schemas.py
-ml_model.py
-seeddata.py
-main.py
-requirements.txt
+---
 
-frontend/
-app.py
+## 🚀 Setup Instructions
 
-.gitignore
-README.txt
+### 1️⃣ Clone the Repository
 
-SETUP INSTRUCTIONS
-
-Clone the repository
-
+```bash
 git clone https://github.com/ARYANBHAT-eng/psoriasis-agent.git
-
 cd psoriasis-agent
+```
 
-Backend setup
+### 2️⃣ Backend Setup
 
-(Optional but recommended)
-Create and activate virtual environment:
+<details>
+<summary><b>Click to expand backend setup</b></summary>
 
+#### Create Virtual Environment (Recommended)
+```bash
 python -m venv venv
+
+# Windows
 venv\Scripts\activate
 
-Install dependencies:
+# Mac/Linux
+source venv/bin/activate
+```
 
+#### Install Dependencies
+```bash
 cd backend
 pip install -r requirements.txt
+```
 
-Start backend server
-
+#### Start Backend Server
+```bash
 uvicorn main:app --reload
+```
 
-Backend URL:
-http://127.0.0.1:8000
+✅ **Backend URL:** `http://127.0.0.1:8000`  
+📚 **API Docs:** `http://127.0.0.1:8000/docs`
 
-Swagger API Docs:
-http://127.0.0.1:8000/docs
+</details>
 
-DATABASE INITIALIZATION
+### 3️⃣ Database Initialization
 
-The SQLite database (psoriasis.db) is automatically created when the backend starts.
+The SQLite database (`psoriasis.db`) is automatically created when the backend starts.
 
-Optional but recommended: Seed sample data
+#### Optional: Seed Sample Data
 
-A seeding script is included to populate the database with realistic entries.
-
-Run:
-
+```bash
 python seeddata.py
+```
 
-Expected output:
-Seed data inserted successfully
+**Expected output:** `✓ Seed data inserted successfully`
 
-MACHINE LEARNING TRAINING
+### 4️⃣ Train Machine Learning Model
 
-Before predictions can work, the ML model must be trained.
+Before predictions work, train the ML model:
 
-Train model using API:
-
+**Option A: Using API**
+```bash
 POST http://127.0.0.1:8000/ml/train
+```
 
-You can also do this from Swagger UI.
+**Option B: Using Swagger UI**
+- Navigate to `http://127.0.0.1:8000/docs`
+- Find `/ml/train` endpoint
+- Click "Try it out" → "Execute"
 
-Successful response example:
-
+**Successful Response:**
+```json
 {
-"status": "trained",
-"samples": 30
+  "status": "trained",
+  "samples": 30
 }
+```
 
-FRONTEND (STREAMLIT DASHBOARD)
+### 5️⃣ Frontend (Streamlit Dashboard)
 
-Start the frontend:
-
+```bash
 cd frontend
 streamlit run app.py
+```
 
-Dashboard URL:
-http://localhost:8501
+🎨 **Dashboard URL:** `http://localhost:8501`
 
-DASHBOARD CAPABILITIES
+---
 
-Add daily symptom entries
+## 📊 Dashboard Capabilities
 
-Toggle between weekly and monthly views
+| Feature | Description |
+|---------|-------------|
+| ➕ **Add Entries** | Log daily symptoms with interactive sliders |
+| 📅 **View Toggle** | Switch between weekly and monthly views |
+| 📈 **Health Summary** | View key health metrics at a glance |
+| 🎨 **Trend Analysis** | Color-coded risk bands for symptom patterns |
+| 🤖 **ML Prediction** | Get flare risk probability and key factors |
+| 🔍 **Risk Factors** | Identify what's contributing to flare risk |
 
-View health summary cards
+---
 
-Analyze symptom trends with color-coded risk bands
+## 🤖 Machine Learning Overview
 
-Get ML-based flare risk prediction
+<table>
+<tr>
+<td width="33%">
 
-View key contributing risk factors
+### Model
+**Logistic Regression**
+- Binary classification
+- Probabilistic output
+- Interpretable results
 
-MACHINE LEARNING OVERVIEW
+</td>
+<td width="33%">
 
-Model:
+### Features (10)
+- Itch intensity
+- Redness level
+- Scaling severity
+- Joint pain
+- Fatigue level
+- Stress level
+- Sleep quality
+- Diet quality
+- Missed medication
+- Topical applied
 
-Logistic Regression
+</td>
+<td width="33%">
 
-Features:
+### Output
+**Flare Prediction**
+- Probability (0-100%)
+- Risk Level:
+  - 🟢 LOW
+  - 🟡 MEDIUM
+  - 🔴 HIGH
+- Key contributing factors
 
-Itch
+</td>
+</tr>
+</table>
 
-Redness
+---
 
-Scaling
+## 🗺️ Roadmap / Future Work
 
-Joint pain
+- [ ] 📱 Mobile application (React Native / Flutter)
+- [ ] 🔐 User authentication & multi-user support
+- [ ] ☁️ Cloud deployment (AWS/Azure/GCP)
+- [ ] 🔑 API key integration
+- [ ] 🧠 Advanced ML models (Random Forest, XGBoost)
+- [ ] 📊 Long-term flare forecasting
+- [ ] 📧 Email/SMS alerts for high-risk predictions
+- [ ] 🌐 Multi-language support
+- [ ] 📤 Export reports (PDF/CSV)
+- [ ] 🔗 Integration with wearable devices
 
-Fatigue
+---
 
-Stress level
+## 📝 License
 
-Sleep quality
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
-Diet quality
+```
+MIT License - Free to use, modify, and distribute.
+```
 
-Missed medication
+---
 
-Topical applied
+## 👨‍💻 Author
 
-Target:
+<div align="center">
 
-psoriasis_flare (0 or 1)
+**Aryan Bhat**
 
-Outputs:
+[![GitHub](https://img.shields.io/badge/GitHub-ARYANBHAT--eng-181717?style=for-the-badge&logo=github)](https://github.com/ARYANBHAT-eng)
 
-Probability of flare
+---
 
-Risk level (LOW / MEDIUM / HIGH)
+### ⭐ Star this repo if you find it helpful!
 
-Key contributing factors
+Made with ❤️ for the psoriasis community
 
-ROADMAP / FUTURE WORK
-
-Mobile application (React Native / Flutter)
-
-User authentication
-
-Cloud deployment
-
-API key integration
-
-Advanced ML models
-
-Long-term flare forecasting
-
-LICENSE
-
-MIT License
-Free to use, modify, and distribute.
-
-AUTHOR
-
-Aryan Bhat
-GitHub: https://github.com/ARYANBHAT-eng
+</div>
