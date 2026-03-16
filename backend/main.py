@@ -19,3 +19,6 @@ app.add_middleware(
 
 app.include_router(entries_router)
 app.include_router(ml_router)
+@app.get("/")
+def root():
+    return {"status": "API running"}
