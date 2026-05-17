@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: psoriasis-api
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir backend --no-access-log
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        value: sqlite:///./psoriasis.db
+      - key: ALLOWED_ORIGINS
+        value: https://psoriasis-ui.onrender.com
+
+  - type: web
+    name: psoriasis-ui
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r frontend/requirements.txt
+    startCommand: streamlit run frontend/app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: API_BASE_URL
+        value: https://psoriasis-api.onrender.com

@@ -17,3 +17,9 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
+
+# Local context
+context.md

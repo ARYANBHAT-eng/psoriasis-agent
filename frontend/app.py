@@ -3,11 +3,10 @@ import requests
 import pandas as pd
 import plotly.express as px
 from datetime import date
-
-# CONFIG
 import os
 
-API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+# CONFIG
+API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 
 st.set_page_config(
     page_title="Psoriasis Dashboard",
