@@ -1,5 +1,7 @@
 
-from sqlalchemy import Column, Integer, Float, String
+from datetime import datetime, timezone
+
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
 from app.database import Base
 
 class DailyEntry(Base):
@@ -19,3 +21,25 @@ class DailyEntry(Base):
     topical_applied = Column(Integer, nullable=False)     # 0 / 1
     psoriasis_flare = Column(Integer, nullable=False)     # 0 / 1 (LABEL)
     notes = Column(String, default="")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    is_active = Column(Boolean, nullable=False, default=True)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, index=True, default=lambda: datetime.now(timezone.utc))
+    event_type = Column(String, nullable=False, index=True)
+    username = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    success = Column(Boolean, nullable=False)
+    details_json = Column(Text, nullable=True)
