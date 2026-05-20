@@ -1,6 +1,7 @@
-from pydantic import BaseModel
-from typing import Optional
-from typing import List
+from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, field_validator
 
 class EntryBase(BaseModel):
     date: str
@@ -49,5 +50,39 @@ class PredictionResponse(BaseModel):
     risk_level: str
     key_factors: List[str]
     recommendations: List[str]
+
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+    @field_validator("password", mode="after")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        if len(v) < 12:
+            raise ValueError("Password must be at least 12 characters")
+        if not any(c.isalpha() for c in v):
+            raise ValueError("Password must contain at least one letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
+        return v
+
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    created_at: datetime
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class AccountDeleteRequest(BaseModel):
+    password: str
 
 
