@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app.database import Base, engine, check_db_connection
 from app import models as _models
 from app.config import get_settings
+from app.routers.auth import router as auth_router
 from app.routers.entries import router as entries_router
 from app.routers.ml import router as ml_router
 
@@ -30,17 +31,18 @@ def on_startup():
 
 
 def get_allowed_origins() -> list[str]:
-    return settings.allowed_origins
+    return settings.get_allowed_origins()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Include routers
+app.include_router(auth_router)
 app.include_router(entries_router)
 app.include_router(ml_router)
 
