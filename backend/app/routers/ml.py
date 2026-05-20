@@ -20,7 +20,7 @@ def train_model(
         raise HTTPException(status_code=400, detail="No entries found to train model")
 
     try:
-        return train_and_save([e.__dict__ for e in entries])
+        return train_and_save([e.__dict__ for e in entries], db)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -32,10 +32,9 @@ def predict_flare(
 ):
     entries = crud.get_all_entries(db)
 
-    if not entries:
-        raise HTTPException(status_code=400, detail="No entries found for prediction")
-
     try:
-        return predict_next([e.__dict__ for e in entries])
+        return predict_next([e.__dict__ for e in entries], db)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
