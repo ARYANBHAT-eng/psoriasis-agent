@@ -9,7 +9,6 @@ from app.database import Base
 import app.models as _models  # noqa: F401 — registers all models on Base.metadata
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -17,10 +16,14 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _get_url() -> str:
+    # Honor a URL set programmatically (e.g. from tests); fall back to app settings
+    return config.get_main_option("sqlalchemy.url", None) or settings.database_url
+
+
 def run_migrations_offline() -> None:
-    url = settings.database_url
     context.configure(
-        url=url,
+        url=_get_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -31,7 +34,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     connectable = engine_from_config(
-        {"sqlalchemy.url": settings.database_url},
+        {"sqlalchemy.url": _get_url()},
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
