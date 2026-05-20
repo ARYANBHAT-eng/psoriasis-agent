@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: psoriasis
+      POSTGRES_PASSWORD: psoriasis
+      POSTGRES_DB: psoriasis
+    ports:
+      # host 5433 avoids collision with any locally installed Postgres
+      - "5433:5432"
+    volumes:
+      - psoriasis-db-data:/var/lib/postgresql/data
+
+volumes:
+  psoriasis-db-data:
+
+# Local dev DATABASE_URL:
+# postgresql://psoriasis:psoriasis@localhost:5433/psoriasis
