@@ -1,12 +1,16 @@
-import os
+import io
+import json
+import logging
+from datetime import datetime, timezone
+
 import joblib
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sqlalchemy.orm import Session
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, "model.pkl")
+logger = logging.getLogger(__name__)
 
 FEATURE_ORDER = [
     "itch",
@@ -21,33 +25,37 @@ FEATURE_ORDER = [
     "topical_applied",
 ]
 
+
 class MLModel:
     def __init__(self):
         self.pipeline = None
+        self._trained_at = None
 
-    def model_exists(self):
-        return os.path.exists(MODEL_PATH)
-
-    def load(self):
-        if self.model_exists():
-            self.pipeline = joblib.load(MODEL_PATH)
-            return True
-        return False
-
-    def save(self):
-        if self.pipeline is None:
-            raise RuntimeError("No trained model to save")
-        joblib.dump(self.pipeline, MODEL_PATH)
+    def load_from_db(self, db: Session) -> bool:
+        from app.models import ModelArtifact
+        row = (
+            db.query(ModelArtifact)
+            .filter(ModelArtifact.is_active.is_(True))
+            .order_by(ModelArtifact.trained_at.desc())
+            .first()
+        )
+        if row is None:
+            return False
+        self.pipeline = joblib.load(io.BytesIO(row.artifact_bytes))
+        self._trained_at = row.trained_at
+        return True
 
     def _clean_rows(self, rows_dict):
         clean = []
         for r in rows_dict:
             r = dict(r)
             r.pop("_sa_instance_state", None)
+            r["missed_medication"] = r["missed_medication"] if r["missed_medication"] is not None else 0
+            r["topical_applied"] = r["topical_applied"] if r["topical_applied"] is not None else 0
             clean.append(r)
         return clean
 
-    def train_and_save(self, rows_dict):
+    def train_and_save(self, rows_dict, db: Session):
         rows_dict = self._clean_rows(rows_dict)
         df = pd.DataFrame(rows_dict)
 
@@ -68,22 +76,47 @@ class MLModel:
 
         self.pipeline = Pipeline([
             ("scale", StandardScaler()),
-            ("clf", LogisticRegression(max_iter=1000))
+            ("clf", LogisticRegression(max_iter=1000)),
         ])
-
         self.pipeline.fit(X, y)
-        self.save()
 
-        return {
-            "status": "trained",
-            "samples": int(len(X))
+        buf = io.BytesIO()
+        joblib.dump(self.pipeline, buf)
+        artifact_bytes = buf.getvalue()
+
+        accuracy = float(self.pipeline.score(X, y))
+        metrics = {
+            "sample_count": int(len(X)),
+            "accuracy": accuracy,
+            "features": FEATURE_ORDER,
+            "classes": list(map(int, self.pipeline.named_steps["clf"].classes_)),
+            "trained_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    def predict_next(self, rows_dict):
-        rows_dict = self._clean_rows(rows_dict)
+        from app.models import ModelArtifact
+        db.query(ModelArtifact).update({"is_active": False})
+        artifact = ModelArtifact(
+            is_active=True,
+            artifact_bytes=artifact_bytes,
+            metrics_json=json.dumps(metrics),
+        )
+        db.add(artifact)
+        db.commit()
+        db.refresh(artifact)
 
-        if not self.pipeline and not self.load():
-            raise RuntimeError("Model not trained yet")
+        self._trained_at = artifact.trained_at
+        return {
+            "status": "trained",
+            "samples": int(len(X)),
+            "accuracy": accuracy,
+            "model_trained_at": artifact.trained_at.isoformat(),
+        }
+
+    def predict_next(self, rows_dict, db: Session):
+        if not self.pipeline and not self.load_from_db(db):
+            raise ValueError("Model not trained yet")
+
+        rows_dict = self._clean_rows(rows_dict)
 
         if not rows_dict:
             raise ValueError("No data available for prediction")
@@ -102,13 +135,14 @@ class MLModel:
 
         model_factors = explain_by_model(self.pipeline, last)
         rule_factors = explain_by_rules(last)
-        
         recommendations = generate_recommendations(risk, last.to_dict())
+
         return {
             "probability_of_flare": prob,
             "risk_level": risk,
             "key_factors": model_factors + rule_factors,
-            "recommendations": recommendations
+            "recommendations": recommendations,
+            "model_trained_at": self._trained_at.isoformat() if self._trained_at else None,
         }
 
 
@@ -160,13 +194,6 @@ def explain_by_rules(last_row: pd.Series):
     return rules
 
 
-model = MLModel()
-
-def train_and_save(rows_dict):
-    return model.train_and_save(rows_dict)
-
-def predict_next(rows_dict):
-    return model.predict_next(rows_dict)
 def generate_recommendations(risk_level: str, last_row: dict):
     recs = []
 
@@ -191,3 +218,30 @@ def generate_recommendations(risk_level: str, last_row: dict):
 
     return recs
 
+
+model = MLModel()
+
+
+def train_and_save(rows_dict, db: Session):
+    return model.train_and_save(rows_dict, db)
+
+
+def predict_next(rows_dict, db: Session):
+    return model.predict_next(rows_dict, db)
+
+
+def maybe_auto_train(db: Session) -> None:
+    try:
+        from app.models import DailyEntry, ModelArtifact
+        if db.query(ModelArtifact).filter(ModelArtifact.is_active.is_(True)).first():
+            logger.info("Active model artifact found in DB, skipping auto-train")
+            return
+        count = db.query(DailyEntry).count()
+        if count < 10:
+            logger.info("Only %d entries — need 10 to auto-train, skipping", count)
+            return
+        entries = db.query(DailyEntry).all()
+        train_and_save([e.__dict__ for e in entries], db)
+        logger.info("Auto-trained model at startup (%d entries)", count)
+    except Exception as exc:
+        logger.error("maybe_auto_train failed: %s", exc)
