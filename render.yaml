@@ -1,3 +1,8 @@
+databases:
+  - name: psoriasis-db
+    databaseName: psoriasis
+    user: psoriasis
+
 services:
   - type: web
     name: psoriasis-api
@@ -9,10 +14,18 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: APP_ENV
+        value: production
       - key: DATABASE_URL
-        value: sqlite:///./psoriasis.db
+        fromDatabase:
+          name: psoriasis-db
+          property: connectionString
+      - key: SECRET_KEY
+        sync: false
       - key: ALLOWED_ORIGINS
         value: https://psoriasis-ui.onrender.com
+      - key: ACCESS_TOKEN_EXPIRE_DAYS
+        value: 7
 
   - type: web
     name: psoriasis-ui
