@@ -1,7 +1,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, LargeBinary, String, Text
 from app.database import Base
 
 class DailyEntry(Base):
@@ -43,3 +43,16 @@ class AuditLog(Base):
     ip_address = Column(String, nullable=True)
     success = Column(Boolean, nullable=False)
     details_json = Column(Text, nullable=True)
+
+
+class ModelArtifact(Base):
+    __tablename__ = "model_artifacts"
+    # metrics_json schema: {"sample_count": int, "accuracy": float,
+    #                        "features": list[str], "classes": list[int],
+    #                        "trained_at": "ISO 8601 string"}
+    id = Column(Integer, primary_key=True, index=True)
+    trained_at = Column(DateTime(timezone=True), nullable=False, index=True,
+                        default=lambda: datetime.now(timezone.utc))
+    is_active = Column(Boolean, nullable=False, default=False, index=True)
+    artifact_bytes = Column(LargeBinary, nullable=False)
+    metrics_json = Column(Text, nullable=True)
