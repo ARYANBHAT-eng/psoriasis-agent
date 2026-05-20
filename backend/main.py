@@ -3,7 +3,8 @@ import time
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import Base, engine
+from fastapi.responses import JSONResponse
+from app.database import Base, engine, check_db_connection
 from app import models as _models
 from app.config import get_settings
 from app.routers.entries import router as entries_router
@@ -64,4 +65,9 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok"}
+    if check_db_connection():
+        return {"status": "ok", "database": "connected"}
+    return JSONResponse(
+        status_code=503,
+        content={"status": "degraded", "database": "unreachable"},
+    )
