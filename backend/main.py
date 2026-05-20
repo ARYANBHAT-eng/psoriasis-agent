@@ -25,7 +25,7 @@ def on_startup():
     Base.metadata.create_all(bind=engine)
     logger.info("Startup config | env=%s", settings.app_env)
     logger.info("Startup config | port=%s", settings.port)
-    logger.info("Startup config | db_url_configured=%s", settings.db_url_configured)
+    logger.info("Startup config | database_url=%s", settings.database_url)
     logger.info("Startup config | allowed_origins=%s", settings.allowed_origins)
 
 
