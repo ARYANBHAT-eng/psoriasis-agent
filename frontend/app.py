@@ -13,15 +13,82 @@ st.set_page_config(
     layout="wide",
 )
 
+
+def _headers():
+    token = st.session_state.get("token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _handle_401(res) -> bool:
+    if res.status_code == 401:
+        st.session_state.pop("token", None)
+        st.rerun()
+    return res.status_code == 401
+
+
+# AUTH GATE
+if "token" not in st.session_state:
+    try:
+        status_res = requests.get(f"{API_BASE}/auth/setup", timeout=5)
+        setup_done = status_res.json().get("setup_done", True)
+    except Exception:
+        st.error("Cannot connect to backend. Check that the API service is running.")
+        st.stop()
+
+    if not setup_done:
+        st.subheader("Create Account")
+        st.caption("Min 12 characters, at least one letter and one digit.")
+        with st.form("signup"):
+            uname = st.text_input("Username")
+            pwd = st.text_input("Password", type="password")
+            if st.form_submit_button("Create Account"):
+                r = requests.post(
+                    f"{API_BASE}/auth/setup",
+                    json={"username": uname, "password": pwd},
+                )
+                if r.status_code == 201:
+                    tok = requests.post(
+                        f"{API_BASE}/auth/token",
+                        data={"username": uname, "password": pwd},
+                    )
+                    st.session_state.token = tok.json()["access_token"]
+                    st.rerun()
+                else:
+                    st.error(r.json().get("detail", r.text))
+    else:
+        st.subheader("Login")
+        with st.form("login"):
+            uname = st.text_input("Username")
+            pwd = st.text_input("Password", type="password")
+            if st.form_submit_button("Login"):
+                r = requests.post(
+                    f"{API_BASE}/auth/token",
+                    data={"username": uname, "password": pwd},
+                )
+                if r.status_code == 200:
+                    st.session_state.token = r.json()["access_token"]
+                    st.rerun()
+                else:
+                    st.error(r.json().get("detail", "Login failed."))
+
+    st.stop()
+
+
+# SIDEBAR
+with st.sidebar:
+    if st.button("Logout"):
+        st.session_state.pop("token", None)
+        st.rerun()
+
 # HEADER
-st.title("🧬 Psoriasis Personalized Agent")
+st.title("Psoriasis Personalized Agent")
 st.caption("Daily tracking • Weekly insights • ML-powered flare prediction")
 
 st.divider()
 view_mode = st.radio(
-    "📅 View Mode",
+    "View Mode",
     options=["Weekly", "Monthly"],
-    horizontal=True
+    horizontal=True,
 )
 
 if view_mode == "Weekly":
@@ -33,7 +100,7 @@ else:
 
 # ADD DAILY ENTRY FORM
 st.divider()
-st.subheader("➕ Add Daily Entry")
+st.subheader("Add Daily Entry")
 
 with st.form("daily_entry_form", clear_on_submit=True):
     c1, c2, c3 = st.columns(3)
@@ -76,14 +143,18 @@ if submitted:
         "notes": notes,
     }
 
-    res = requests.post(f"{API_BASE}/entries", json=payload)
+    res = requests.post(f"{API_BASE}/entries/", json=payload, headers=_headers())
+    if _handle_401(res):
+        st.stop()
     if res.status_code == 200:
-        st.success("✅ Entry saved successfully")
+        st.success("Entry saved successfully")
     else:
         st.error(res.text)
 
 # LOAD DATA
-entries_res = requests.get(f"{API_BASE}/entries")
+entries_res = requests.get(f"{API_BASE}/entries/", headers=_headers())
+if _handle_401(entries_res):
+    st.stop()
 if entries_res.status_code != 200:
     st.error("Failed to load entries")
     st.stop()
@@ -105,12 +176,14 @@ df["symptom_total"] = (
     df["fatigue"]
 )
 
+
 def risk_band(score):
     if score < 15:
         return "Low"
     elif score <= 25:
         return "Medium"
     return "High"
+
 
 df["risk"] = df["symptom_total"].apply(risk_band)
 
@@ -119,11 +192,14 @@ df_view = df.tail(days)
 
 # WEEKLY / MONTHLY SUMMARY
 st.divider()
-st.subheader("📊 Summary")
+st.subheader("Summary")
 
 summary_res = requests.get(
-    f"{API_BASE}/entries/summary?weeks={weeks}"
+    f"{API_BASE}/entries/summary?weeks={weeks}",
+    headers=_headers(),
 )
+if _handle_401(summary_res):
+    st.stop()
 
 if summary_res.status_code == 200:
     summary = summary_res.json()
@@ -139,7 +215,7 @@ else:
 
 # RISK TREND
 st.divider()
-st.subheader("📈 Symptom Trend with Risk Bands")
+st.subheader("Symptom Trend with Risk Bands")
 
 fig = px.scatter(
     df_view,
@@ -165,7 +241,7 @@ st.plotly_chart(fig, use_container_width=True)
 
 # DAILY ENTRIES TABLE
 st.divider()
-st.subheader("📋 Daily Entries")
+st.subheader("Daily Entries")
 
 display_cols = [
     "date",
@@ -190,9 +266,11 @@ st.dataframe(
 
 # ML PREDICTION
 st.divider()
-st.subheader("🧠 Flare Risk Prediction")
+st.subheader("Flare Risk Prediction")
 
-pred_res = requests.get(f"{API_BASE}/ml/predict")
+pred_res = requests.get(f"{API_BASE}/ml/predict", headers=_headers())
+if _handle_401(pred_res):
+    st.stop()
 
 if pred_res.status_code == 200:
     pred = pred_res.json()
