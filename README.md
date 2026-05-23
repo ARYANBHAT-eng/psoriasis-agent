@@ -27,7 +27,7 @@
 - **Daily symptom logging** with 10+ health metrics
 - **Weekly & monthly** health summaries
 - **Interactive visualizations** with trend analysis
-- **SQLite database** for local data storage
+- **PostgreSQL** (Render-managed) with Alembic migrations
 
 </td>
 <td width="50%">
@@ -86,12 +86,16 @@
 
 ### Backend
 ```
-🐍 Python
-⚡ FastAPI
-🗄️ SQLAlchemy
-💾 SQLite
+🐍 Python 3.11.9
+⚡ FastAPI 0.111.0
+🗄️ SQLAlchemy 2.0 + PostgreSQL
+🔄 Alembic (migrations)
+⚙️ pydantic-settings
+🔐 python-jose (JWT / HS256)
+🔑 passlib[bcrypt]
 🤖 Scikit-Learn
 📊 Pandas
+🧪 pytest + httpx
 ```
 
 </td>
@@ -116,28 +120,39 @@
 psoriasis-agent/
 │
 ├── backend/
+│   ├── alembic/
+│   │   └── versions/          # migration scripts
 │   ├── app/
 │   │   ├── routers/
+│   │   │   ├── auth.py
 │   │   │   ├── entries.py
 │   │   │   └── ml.py
+│   │   ├── auth.py            # JWT + bcrypt + audit logger
+│   │   ├── config.py          # pydantic-settings BaseSettings
 │   │   ├── crud.py
 │   │   ├── database.py
+│   │   ├── ml_model.py
 │   │   ├── models.py
 │   │   └── schemas.py
-│   ├── ml_model.py
-│   ├── seeddata.py
+│   ├── tests/
+│   │   ├── conftest.py
+│   │   ├── test_smoke.py      # 24 route tests (SQLite in-memory)
+│   │   └── test_migration.py  # Alembic upgrade/downgrade round-trip
+│   ├── alembic.ini
 │   ├── main.py
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── requirements-dev.txt
+│
+├── docs/
+│   ├── PHASE_0_ENGINEERING_SPEC.md
+│   └── ROLLBACK.md
 │
 ├── frontend/
 │   └── app.py
 │
-├── screenshots/
-│   ├── DailyEntries.png
-│   ├── Entry.png
-│   ├── FlareRiskPrediction.png
-│   └── SymptomTrends.png
-│
+├── docker-compose.yml
+├── render.yaml
+├── .env.example
 ├── .gitignore
 ├── LICENSE
 └── README.md
@@ -170,6 +185,18 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
+#### Copy environment file
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set `SECRET_KEY` to a 64-char hex string:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
 #### Install Dependencies
 ```bash
 cd backend
@@ -186,41 +213,60 @@ uvicorn main:app --reload
 
 </details>
 
-### 3️⃣ Database Initialization
+### 3️⃣ Database Setup
 
-The SQLite database (`psoriasis.db`) is automatically created when the backend starts.
-
-#### Optional: Seed Sample Data
+#### Start local PostgreSQL (Docker required)
 
 ```bash
-python seeddata.py
+docker-compose up -d
 ```
 
-**Expected output:** `✓ Seed data inserted successfully`
+This starts Postgres on port 5433 (avoids collisions with any locally installed Postgres).
 
-### 4️⃣ Train Machine Learning Model
+#### Run Alembic migrations
 
-Before predictions work, train the ML model:
-
-**Option A: Using API**
 ```bash
+cd backend
+alembic upgrade head
+```
+
+**Expected output:** `INFO  [alembic.runtime.migration] Running upgrade ...`
+
+### 4️⃣ First-Run Account Setup
+
+On first launch, create your account via the API:
+
+```
+POST http://127.0.0.1:8000/auth/setup
+```
+
+Or use the interactive docs at `http://127.0.0.1:8000/docs` → `POST /auth/setup`.
+
+**Password requirements:** minimum 12 characters, at least one letter, at least one digit.
+
+This endpoint returns 409 if an account already exists — only one account per deployment.
+
+### 5️⃣ Train Machine Learning Model
+
+Before predictions work, train the ML model. Training requires a JWT token — use the **Authorize** button in Swagger UI (`http://127.0.0.1:8000/docs`) after logging in via `POST /auth/token`.
+
+```
 POST http://127.0.0.1:8000/ml/train
+Authorization: Bearer <your_token>
 ```
 
-**Option B: Using Swagger UI**
-- Navigate to `http://127.0.0.1:8000/docs`
-- Find `/ml/train` endpoint
-- Click "Try it out" → "Execute"
+Requires at least 10 daily entries. The model auto-trains on startup if 10+ entries are present and no active model artifact exists.
 
 **Successful Response:**
 ```json
 {
   "status": "trained",
-  "samples": 30
+  "accuracy": 0.92,
+  "model_trained_at": "2026-01-15T10:30:00+00:00"
 }
 ```
 
-### 5️⃣ Frontend (Streamlit Dashboard)
+### 6️⃣ Frontend (Streamlit Dashboard)
 
 ```bash
 cd frontend
@@ -229,7 +275,7 @@ streamlit run app.py
 
 🎨 **Dashboard URL:** `http://localhost:8501`
 
-### 6️⃣ Production Deployment (Render)
+### 7️⃣ Production Deployment (Render)
 
 This repository is configured for **two Render services** using `render.yaml`:
 
@@ -241,11 +287,17 @@ Both services are pinned to **Python 3.11.9** using `runtime.txt` and `PYTHON_VE
 #### Environment Variables
 
 Backend (`psoriasis-api`):
-- `DATABASE_URL` (defaults to local SQLite if omitted)
-- `ALLOWED_ORIGINS` (comma-separated explicit frontend URLs — wildcard `*` is rejected by the backend)
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | Injected automatically from Render-managed Postgres |
+| `SECRET_KEY` | Yes | 64-char hex string — set manually in Render dashboard (`sync: false`, never committed) |
+| `ALLOWED_ORIGINS` | Yes | Comma-separated frontend URLs — wildcard `*` is rejected |
+| `ACCESS_TOKEN_EXPIRE_DAYS` | No | JWT expiry in days (default: 7) |
+| `APP_ENV` | No | Set to `production` on Render |
 
 Frontend (`psoriasis-ui`):
-- `API_BASE_URL` (your deployed backend URL)
+- `API_BASE_URL` — your deployed backend URL (e.g. `https://psoriasis-api.onrender.com`)
 
 #### Local Install (split dependencies)
 
@@ -271,6 +323,20 @@ pip install -r frontend/requirements.txt
 | 🎨 **Trend Analysis** | Color-coded risk bands for symptom patterns |
 | 🤖 **ML Prediction** | Get flare risk probability and key factors |
 | 🔍 **Risk Factors** | Identify what's contributing to flare risk |
+
+---
+
+## 🔐 Authentication & Data Rights
+
+**Single-user JWT authentication** (HS256, 7-day token expiry). One account per deployment — this is a personal health tracker, not a multi-tenant SaaS.
+
+**Password requirements:** minimum 12 characters, at least one letter, at least one digit.
+
+**Audit log:** Every login attempt (success or failure), account setup, and account deletion is written to the `audit_logs` table with timestamp, IP address, and outcome. Passwords and tokens are never logged.
+
+**Data export:** `GET /entries/export` returns all your health data as a downloadable JSON file (GDPR Article 20 — right to data portability).
+
+**Account deletion:** `DELETE /auth/account` requires your current password in the request body. Permanently deletes all entries and the account — cannot be undone (GDPR Article 17 — right to erasure).
 
 ---
 
@@ -328,6 +394,8 @@ pip install -r frontend/requirements.txt
 ### 1️⃣ Infrastructure & Data Reliability
 
 #### 🗄️ Migrate to Persistent Database (PostgreSQL)
+**✅ Completed in Phase 0** — see `docs/ROLLBACK.md` for migration procedures.
+
 SQLite on Render's free tier is ephemeral — data and the trained model can be lost on redeploys or restarts. For a chronic disease tracker where continuity of history is the entire value, this is a critical gap.
 
 - Migrate backend to PostgreSQL (Render Postgres or Supabase free tier)
@@ -335,6 +403,8 @@ SQLite on Render's free tier is ephemeral — data and the trained model can be 
 - Add automated daily backup snapshots
 
 #### 💾 Model Persistence & Graceful Degradation
+**✅ Completed in Phase 0** — model artifact stored as binary blob in `model_artifacts` table; survives redeploys.
+
 Currently, `model.pkl` is generated at runtime and not committed to version control. After any clean deploy or service restart, the prediction endpoint becomes silently unavailable until `/ml/train` is manually re-triggered.
 
 - Store the trained model artifact in a persistent object store (e.g., Cloudflare R2, AWS S3)
@@ -422,6 +492,7 @@ The core goal of this project is to help users have more informed conversations 
 ---
 
 ### 6️⃣ Authentication & Multi-User Support
+**✅ Completed in Phase 0 (single-user)** — JWT auth, bcrypt password hashing, audit logging, data export and deletion.
 
 Currently there is no authentication layer. This is acceptable for a local single-user demo but is a prerequisite for any shared or hosted deployment.
 
@@ -443,6 +514,7 @@ The current recommendation engine is rule-based and generic. Telling someone who
 ---
 
 ### 8️⃣ Testing & Observability
+**✅ Partially completed in Phase 0** — 24 smoke tests (SQLite in-memory) + 1 Alembic migration integration test (real Postgres). Remaining items below are still future work.
 
 - Minimal API smoke test suite covering `/healthz`, `/entries`, summary, and prediction endpoints
 - Structured logging with correlation IDs for request tracing across services
