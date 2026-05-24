@@ -1,14 +1,20 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, LargeBinary, String, Text
+from sqlalchemy import (
+    Boolean, Column, DateTime, Float, ForeignKey,
+    Integer, JSON, LargeBinary, String, Text, UniqueConstraint,
+)
 from app.database import Base
 
-class DailyEntry(Base):
-    __tablename__ = "daily_entries"
+
+class Entry(Base):
+    __tablename__ = "entries"
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_entries_user_date"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(String, index=True, nullable=False)
     itch = Column(Float, nullable=False)
     redness = Column(Float, nullable=False)
     scaling = Column(Float, nullable=False)
@@ -17,10 +23,15 @@ class DailyEntry(Base):
     stress_level = Column(Float, nullable=False)
     sleep_quality = Column(Float, nullable=False)
     diet_quality = Column(Float, nullable=False)
-    missed_medication = Column(Integer, nullable=False)   # 0 / 1
-    topical_applied = Column(Integer, nullable=False)     # 0 / 1
-    psoriasis_flare = Column(Integer, nullable=False)     # 0 / 1 (LABEL)
+    missed_medication = Column(Integer, nullable=False)
+    topical_applied = Column(Integer, nullable=False)
+    legacy_flare_flag = Column(Integer, nullable=True)
     notes = Column(String, default="")
+    morning_stiffness_minutes = Column(Integer, nullable=True)   # 0–480 minutes
+    affected_joints = Column(JSON, nullable=True)
+    functional_limitation = Column(Integer, nullable=True)       # 0–10
+    bsa_estimate = Column(Float, nullable=True)                  # 0.0–100.0 %
+    plaque_locations = Column(JSON, nullable=True)
 
 
 class User(Base):
@@ -56,3 +67,19 @@ class ModelArtifact(Base):
     is_active = Column(Boolean, nullable=False, default=False, index=True)
     artifact_bytes = Column(LargeBinary, nullable=False)
     metrics_json = Column(Text, nullable=True)
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    has_psoriasis = Column(Boolean, nullable=False, default=True)
+    has_psa = Column(Boolean, nullable=False, default=False)
+    tracks_cycle = Column(Boolean, nullable=False, default=False)
+    location_city = Column(String, nullable=True)
+    location_lat = Column(Float, nullable=True)
+    location_lon = Column(Float, nullable=True)
+    timezone = Column(String, nullable=False, default="UTC")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

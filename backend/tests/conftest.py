@@ -87,7 +87,7 @@ def seeded_entries(client, auth_headers):
             "diet_quality": round(random.uniform(1, 9), 1),
             "missed_medication": random.randint(0, 1),
             "topical_applied": random.randint(0, 1),
-            "psoriasis_flare": 1 if i < 4 else 0,  # 4 flares, 8 non-flares
+            "legacy_flare_flag": 1 if i < 4 else 0,  # 4 flares, 8 non-flares
             "notes": "",
         }
         entries.append(entry)

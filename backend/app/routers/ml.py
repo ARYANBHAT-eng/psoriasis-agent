@@ -14,7 +14,7 @@ def train_model(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    entries = crud.get_all_entries(db)
+    entries = crud.get_all_entries(db, current_user.id)
 
     if not entries:
         raise HTTPException(status_code=400, detail="No entries found to train model")
@@ -30,7 +30,7 @@ def predict_flare(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    entries = crud.get_all_entries(db)
+    entries = crud.get_all_entries(db, current_user.id)
 
     try:
         return predict_next([e.__dict__ for e in entries], db)

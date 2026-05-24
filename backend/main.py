@@ -9,8 +9,9 @@ from app.database import check_db_connection, SessionLocal
 from app.config import get_settings
 from app.ml_model import maybe_auto_train
 from app.routers.auth import router as auth_router
-from app.routers.entries import router as entries_router
+from app.routers.entries import router as entries_router, v2_router as entries_v2_router
 from app.routers.ml import router as ml_router
+from app.routers.profile import router as profile_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,7 +49,9 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_router)
 app.include_router(entries_router)
+app.include_router(entries_v2_router)
 app.include_router(ml_router)
+app.include_router(profile_router)
 
 
 @app.middleware("http")

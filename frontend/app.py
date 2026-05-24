@@ -74,11 +74,55 @@ if "token" not in st.session_state:
     st.stop()
 
 
+# PROFILE FETCH (auto-creates with defaults on first read)
+if "profile" not in st.session_state:
+    try:
+        pr = requests.get(f"{API_BASE}/v2/profile", headers=_headers(), timeout=5)
+        st.session_state.profile = pr.json() if pr.status_code == 200 else {}
+    except Exception:
+        st.session_state.profile = {}
+
+profile = st.session_state.profile
+has_psoriasis = profile.get("has_psoriasis", True)
+has_psa = profile.get("has_psa", False)
+
+
 # SIDEBAR
 with st.sidebar:
     if st.button("Logout"):
         st.session_state.pop("token", None)
+        st.session_state.pop("profile", None)
         st.rerun()
+
+    st.divider()
+    with st.expander("Profile Settings"):
+        pso_toggle = st.checkbox("I have Psoriasis", value=has_psoriasis)
+        psa_toggle = st.checkbox("I have Psoriatic Arthritis (PsA)", value=has_psa)
+        cycle_toggle = st.checkbox("Track Menstrual Cycle", value=profile.get("tracks_cycle", False))
+        location_city = st.text_input("City (optional)", value=profile.get("location_city") or "")
+        timezone = st.text_input("Timezone", value=profile.get("timezone", "UTC"))
+
+        if st.button("Save Profile"):
+            patch_payload = {
+                "has_psoriasis": pso_toggle,
+                "has_psa": psa_toggle,
+                "tracks_cycle": cycle_toggle,
+                "location_city": location_city or None,
+                "timezone": timezone or "UTC",
+            }
+            pr = requests.patch(
+                f"{API_BASE}/v2/profile",
+                json=patch_payload,
+                headers=_headers(),
+                timeout=5,
+            )
+            if pr.status_code == 200:
+                st.session_state.profile = pr.json()
+                st.success("Profile saved")
+                st.rerun()
+            else:
+                st.error(pr.json().get("detail", pr.text))
+
 
 # HEADER
 st.title("Psoriasis Personalized Agent")
@@ -102,6 +146,9 @@ else:
 st.divider()
 st.subheader("Add Daily Entry")
 
+_JOINT_OPTIONS = ["DIP", "PIP", "MCP", "Wrist", "Elbow", "Shoulder", "Hip", "Knee", "Ankle", "Sacroiliac"]
+_PLAQUE_OPTIONS = ["Scalp", "Elbows", "Knees", "Lower Back", "Nails", "Face", "Trunk", "Hands/Feet"]
+
 with st.form("daily_entry_form", clear_on_submit=True):
     c1, c2, c3 = st.columns(3)
 
@@ -121,9 +168,37 @@ with st.form("daily_entry_form", clear_on_submit=True):
         diet_quality = st.slider("Diet Quality", 0, 10, 5)
         missed_medication = st.selectbox("Missed Medication?", [0, 1])
         topical_applied = st.selectbox("Topical Applied?", [0, 1])
-        psoriasis_flare = st.selectbox("Flare Today?", [0, 1])
+        legacy_flare_flag = st.selectbox("Flare Today?", [0, 1])
 
     notes = st.text_input("Notes")
+
+    # PsA-gated fields
+    morning_stiffness_minutes = None
+    affected_joints = None
+    functional_limitation = None
+    if has_psa:
+        st.markdown("**Psoriatic Arthritis**")
+        psa_c1, psa_c2 = st.columns(2)
+        with psa_c1:
+            morning_stiffness_minutes = st.slider(
+                "Morning Stiffness (minutes)", 0, 480, 0, step=5,
+                help="If stiffness exceeded 8 hours, log 480 and note actual duration."
+            )
+            functional_limitation = st.slider("Functional Limitation (0–10)", 0, 10, 0)
+        with psa_c2:
+            affected_joints = st.multiselect("Affected Joints", _JOINT_OPTIONS)
+
+    # Psoriasis-gated fields
+    bsa_estimate = None
+    plaque_locations = None
+    if has_psoriasis:
+        st.markdown("**Psoriasis**")
+        pso_c1, pso_c2 = st.columns(2)
+        with pso_c1:
+            bsa_estimate = st.slider("BSA Estimate (%)", 0.0, 100.0, 0.0, step=0.5)
+        with pso_c2:
+            plaque_locations = st.multiselect("Plaque Locations", _PLAQUE_OPTIONS)
+
     submitted = st.form_submit_button("Save Entry")
 
 if submitted:
@@ -139,9 +214,18 @@ if submitted:
         "diet_quality": diet_quality,
         "missed_medication": missed_medication,
         "topical_applied": topical_applied,
-        "psoriasis_flare": psoriasis_flare,
+        "legacy_flare_flag": legacy_flare_flag,
         "notes": notes,
     }
+
+    if has_psa:
+        payload["morning_stiffness_minutes"] = morning_stiffness_minutes
+        payload["affected_joints"] = affected_joints or []
+        payload["functional_limitation"] = functional_limitation
+
+    if has_psoriasis:
+        payload["bsa_estimate"] = bsa_estimate
+        payload["plaque_locations"] = plaque_locations or []
 
     res = requests.post(f"{API_BASE}/entries/", json=payload, headers=_headers())
     if _handle_401(res):
@@ -243,7 +327,7 @@ st.plotly_chart(fig, use_container_width=True)
 st.divider()
 st.subheader("Daily Entries")
 
-display_cols = [
+_BASE_DISPLAY_COLS = [
     "date",
     "itch",
     "redness",
@@ -255,9 +339,20 @@ display_cols = [
     "diet_quality",
     "missed_medication",
     "topical_applied",
-    "psoriasis_flare",
+    "legacy_flare_flag",
     "notes",
 ]
+
+# Add clinical columns only if data is present in the returned entries
+_CLINICAL_COLS = [
+    "morning_stiffness_minutes",
+    "affected_joints",
+    "functional_limitation",
+    "bsa_estimate",
+    "plaque_locations",
+]
+
+display_cols = _BASE_DISPLAY_COLS + [c for c in _CLINICAL_COLS if c in df_view.columns and df_view[c].notna().any()]
 
 st.dataframe(
     df_view[display_cols].sort_values("date", ascending=False),

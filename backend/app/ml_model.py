@@ -59,17 +59,18 @@ class MLModel:
         rows_dict = self._clean_rows(rows_dict)
         df = pd.DataFrame(rows_dict)
 
-        for f in FEATURE_ORDER + ["psoriasis_flare"]:
+        for f in FEATURE_ORDER + ["legacy_flare_flag"]:
             if f not in df.columns:
                 df[f] = 0
 
-        if df["psoriasis_flare"].isnull().all():
-            raise ValueError("psoriasis_flare label (0/1) required for training")
+        if df["legacy_flare_flag"].isnull().all():
+            raise ValueError("legacy_flare_flag label (0/1) required for training")
 
-        df = df.dropna()
+        training_cols = FEATURE_ORDER + ["legacy_flare_flag"]
+        df = df.dropna(subset=training_cols)
 
         X = df[FEATURE_ORDER].astype(float).values
-        y = df["psoriasis_flare"].astype(int).values
+        y = df["legacy_flare_flag"].astype(int).values
 
         if len(X) < 10:
             raise ValueError("At least 10 entries required to train model")
@@ -232,15 +233,15 @@ def predict_next(rows_dict, db: Session):
 
 def maybe_auto_train(db: Session) -> None:
     try:
-        from app.models import DailyEntry, ModelArtifact
+        from app.models import Entry, ModelArtifact
         if db.query(ModelArtifact).filter(ModelArtifact.is_active.is_(True)).first():
             logger.info("Active model artifact found in DB, skipping auto-train")
             return
-        count = db.query(DailyEntry).count()
+        count = db.query(Entry).count()
         if count < 10:
             logger.info("Only %d entries — need 10 to auto-train, skipping", count)
             return
-        entries = db.query(DailyEntry).all()
+        entries = db.query(Entry).all()
         train_and_save([e.__dict__ for e in entries], db)
         logger.info("Auto-trained model at startup (%d entries)", count)
     except Exception as exc:

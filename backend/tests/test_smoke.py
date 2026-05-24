@@ -92,7 +92,7 @@ _BASE_ENTRY = {
     "diet_quality": 7.0,
     "missed_medication": 0,
     "topical_applied": 1,
-    "psoriasis_flare": 0,
+    "legacy_flare_flag": 0,
     "notes": "",
 }
 

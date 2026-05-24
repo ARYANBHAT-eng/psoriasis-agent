@@ -12,7 +12,7 @@ from app.auth import (
     verify_password,
 )
 from app.database import get_db
-from app.models import DailyEntry, User
+from app.models import Entry, User
 from app.schemas import AccountDeleteRequest, Token, UserCreate, UserResponse
 
 router = APIRouter(tags=["Auth"])
@@ -92,7 +92,7 @@ def delete_account(
         get_client_ip(request),
         True,
     )
-    db.query(DailyEntry).delete()
+    db.query(Entry).delete()
     db.delete(current_user)
     db.commit()
     return Response(status_code=204)
