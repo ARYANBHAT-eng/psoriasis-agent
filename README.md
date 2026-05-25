@@ -96,6 +96,7 @@
 🤖 Scikit-Learn
 📊 Pandas
 🧪 pytest + httpx
+🌤️ Open-Meteo (weather, no API key)
 ```
 
 </td>
@@ -114,6 +115,31 @@
 
 ---
 
+## 🗃️ Data Model
+
+Six tables underpin the application. All user-created rows are scoped to a single user and included in the data export and account deletion.
+
+| Table | Purpose | Key fields |
+|---|---|---|
+| `entries` | Daily symptom + lifestyle log, one row per day per user | itch, redness, scaling, joint_pain, fatigue, stress_level, sleep_quality, diet_quality, missed_medication, topical_applied, bsa_estimate, plaque_locations (Psoriasis); morning_stiffness_minutes, affected_joints, functional_limitation (PsA); alcohol_units, illness_active, illness_description, cycle_day_of_period (triggers) |
+| `user_profiles` | 1:1 with users; gates condition-specific fields in the UI and API | has_psoriasis, has_psa, tracks_cycle, location_city, location_lat/lon (2dp precision), timezone |
+| `weather_captures` | Auto-fetched daily via Open-Meteo when a location is set; one row per user per day | temperature_c, humidity_pct, uv_index, precipitation_mm, cloud_cover_pct, pressure_hpa |
+| `medication_events` | Append-only treatment change log (start/stop/dose changes); separate from daily missed_medication flag | date, medication_name, event_type, dose, notes |
+| `flare_events` | Structured flare tracking with open/close lifecycle; decoupled from daily entries | start_date, end_date (NULL = ongoing), condition_type (psoriasis/psa/both), severity (1–10), confidence_source (user_confirmed/algorithm_derived/legacy), notes |
+| `model_artifacts` | ML model binary storage; survives redeploys | model_blob, trained_at, accuracy |
+
+`entries` previously called `daily_entries` (renamed in Phase 1 migration `02f40192a44c`). The legacy `psoriasis_flare` column is preserved as `legacy_flare_flag` and backfilled into `flare_events` with `confidence_source='legacy'`.
+
+---
+
+## 🏥 Clinical Context
+
+**Why psoriasis and psoriatic arthritis are tracked separately.** Psoriasis is a skin condition driven primarily by immune-mediated inflammation, with flares often correlating with stress, illness, and environmental triggers like humidity and UV exposure. Psoriatic arthritis involves joint inflammation with a different trigger profile — morning stiffness duration, affected joint pattern, and functional limitation are the clinically standard metrics (used in DAPSA scoring). The time-to-onset from trigger to visible flare differs between conditions, and a model conflating both produces statistically coincidental rather than predictive outputs. `UserProfile.has_psoriasis` and `has_psa` gate which fields are collected, validated, and eventually fed to separate Phase 2 models.
+
+**Why flare events are separate from daily entries.** A daily log entry records "how I feel today." A flare event records "I had a flare, it lasted N days, I'm confident about it." Conflating these creates label noise: people tend to mark a flare only when symptoms are already severe, teaching the model to predict obvious flares rather than early-warning signals. Separating them allows confidence annotation (`confidence_source`), multi-day event representation, and clean lifecycle management (open flares vs. closed). Legacy `legacy_flare_flag` values from pre-Phase 1 data are preserved as low-confidence seed labels with `confidence_source='legacy'` until Phase 2 validates the new labeling pipeline.
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -121,14 +147,19 @@ psoriasis-agent/
 │
 ├── backend/
 │   ├── alembic/
-│   │   └── versions/          # migration scripts
+│   │   └── versions/              # 7 migration scripts (3 Phase 0 + 4 Phase 1)
 │   ├── app/
 │   │   ├── routers/
 │   │   │   ├── auth.py
-│   │   │   ├── entries.py
-│   │   │   └── ml.py
-│   │   ├── auth.py            # JWT + bcrypt + audit logger
-│   │   ├── config.py          # pydantic-settings BaseSettings
+│   │   │   ├── entries.py         # v1 + v2 entry routes
+│   │   │   ├── flares.py          # /v2/flares CRUD
+│   │   │   ├── medications.py     # /v2/medications/events CRUD
+│   │   │   ├── ml.py
+│   │   │   └── profile.py         # /v2/profile GET + PATCH
+│   │   ├── services/
+│   │   │   └── weather.py         # Open-Meteo fetch + best-effort trigger
+│   │   ├── auth.py                # JWT + bcrypt + audit logger
+│   │   ├── config.py              # pydantic-settings BaseSettings
 │   │   ├── crud.py
 │   │   ├── database.py
 │   │   ├── ml_model.py
@@ -136,8 +167,10 @@ psoriasis-agent/
 │   │   └── schemas.py
 │   ├── tests/
 │   │   ├── conftest.py
-│   │   ├── test_smoke.py      # 24 route tests (SQLite in-memory)
-│   │   └── test_migration.py  # Alembic upgrade/downgrade round-trip
+│   │   ├── test_smoke.py          # 65 route tests (SQLite in-memory)
+│   │   ├── test_profile.py        # 5 profile tests
+│   │   ├── test_v2_entries.py     # 6 v2 entry tests
+│   │   └── test_migration.py      # Alembic upgrade/downgrade round-trip (Postgres)
 │   ├── alembic.ini
 │   ├── main.py
 │   ├── requirements.txt
@@ -145,6 +178,7 @@ psoriasis-agent/
 │
 ├── docs/
 │   ├── PHASE_0_ENGINEERING_SPEC.md
+│   ├── PHASE_1_ENGINEERING_SPEC.md
 │   └── ROLLBACK.md
 │
 ├── frontend/
@@ -317,12 +351,49 @@ pip install -r frontend/requirements.txt
 
 | Feature | Description |
 |---------|-------------|
-| ➕ **Add Entries** | Log daily symptoms with interactive sliders |
+| ➕ **Add Entries** | Log daily symptoms with interactive sliders; condition-gated fields shown based on profile |
 | 📅 **View Toggle** | Switch between weekly and monthly views |
 | 📈 **Health Summary** | View key health metrics at a glance |
 | 🎨 **Trend Analysis** | Color-coded risk bands for symptom patterns |
+| 📊 **Entry Quality** | Real-time data completeness score (High / Medium / Low) per entry |
+| 🌤️ **Weather Panel** | Today's weather shown automatically when a location is set in Profile Settings |
+| 💊 **Medication Events** | Log start/stop/dose change events; view full history |
+| 🔥 **Flare Events** | Log open and closed flares; close open flares from the sidebar; filter by condition type |
+| 💡 **Insights** | Placeholder for Phase 2 ML-powered pattern analysis |
+| 📥 **Data Export** | Download all data (entries, medications, flares) as JSON via sidebar button |
 | 🤖 **ML Prediction** | Get flare risk probability and key factors |
-| 🔍 **Risk Factors** | Identify what's contributing to flare risk |
+
+---
+
+## 🔌 API Endpoints
+
+### v1 (preserved for backward compatibility)
+
+| Method | Route | Description |
+|---|---|---|
+| `POST` | `/entries/` | Create or update a daily entry |
+| `GET` | `/entries/` | List all entries |
+| `GET` | `/entries/summary` | Weekly/monthly aggregate metrics |
+| `GET` | `/entries/export` | Download all data as JSON |
+
+### v2 (canonical Phase 1 routes)
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/v2/profile` | Fetch user profile (auto-created with defaults) |
+| `PATCH` | `/v2/profile` | Update condition flags, location, timezone |
+| `POST` | `/v2/entries/` | Create or update entry (identical to v1, accepts clinical fields) |
+| `GET` | `/v2/entries/` | List all entries |
+| `GET` | `/v2/entries/{date}/context` | Entry + weather snapshot for a given date |
+| `POST` | `/v2/medications/events` | Log a medication event (start/stop/dose change) |
+| `GET` | `/v2/medications/events` | List medication events (optional `from` / `to` date filter) |
+| `DELETE` | `/v2/medications/events/{id}` | Delete a medication event |
+| `POST` | `/v2/flares/` | Log a new flare event |
+| `GET` | `/v2/flares/` | List flare events (optional `from` / `to` / `condition` filters) |
+| `PATCH` | `/v2/flares/{id}` | Close or update a flare event |
+| `DELETE` | `/v2/flares/{id}` | Delete a flare event |
+
+Full interactive docs at `http://127.0.0.1:8000/docs` once the backend is running.
 
 ---
 
@@ -393,6 +464,10 @@ pip install -r frontend/requirements.txt
 
 ### 1️⃣ Infrastructure & Data Reliability
 
+> **Completed in Phase 1:** Clinical data model expansion (§2, §3), external trigger capture including weather (§3), medication event tracking, flare labeling redesign (§2.2), user profile with condition discrimination, entry quality scoring. See `docs/PHASE_1_ENGINEERING_SPEC.md` for the full specification.
+
+---
+
 #### 🗄️ Migrate to Persistent Database (PostgreSQL)
 **✅ Completed in Phase 0** — see `docs/ROLLBACK.md` for migration procedures.
 
@@ -426,18 +501,20 @@ Psoriasis and psoriatic arthritis flares are not caused by a single day's data �
 - **Streak features**: consecutive days of missed medication, poor sleep, or high stress as dedicated signals
 
 #### 🏷️ Better Flare Labeling
-The current `psoriasis_flare` label is user-entered retrospectively — people tend to mark a flare only when symptoms are already severe. This teaches the model to predict obvious flares, not early-warning flares.
+**✅ Completed in Phase 1** — dedicated `FlareEvent` table with `confidence_source` annotation; legacy `psoriasis_flare` values backfilled as low-confidence seed labels with `confidence_source='legacy'`.
 
-- Introduce a dedicated flare confirmation flow, separate from the daily logging form
+The current `psoriasis_flare` label was user-entered retrospectively — people tend to mark a flare only when symptoms are already severe. Phase 1 replaces this with a structured flare lifecycle. Remaining Phase 2 work:
+
 - Explore algorithmically derived flare labels from symptom threshold crossings (e.g., composite score exceeding a rolling 14-day baseline by a configurable margin)
-- Annotate label confidence so the model can weight high-certainty labels more strongly during training
+- Retrain the ML model on `FlareEvent` labels instead of `legacy_flare_flag`
 
 #### 🦴 Separate Models for Psoriasis vs. Psoriatic Arthritis
+**✅ Completed in Phase 1 (data foundation)** — `UserProfile` gates condition-specific fields; PsA-specific entry fields (morning stiffness, joint count, functional limitation) are now collected. Separate model training is Phase 2.
+
 Skin flares and joint inflammation (PsA) have different triggers, different lag times, and different clinically relevant features. A single model conflates two distinct conditions.
 
-- Train separate prediction pipelines for skin flare risk and joint flare risk
-- Add PsA-specific features: morning stiffness duration, affected joint count, functional limitation score
-- Surface two independent risk scores in the dashboard
+- Train separate prediction pipelines for skin flare risk and joint flare risk (Phase 2)
+- Surface two independent risk scores in the dashboard (Phase 2)
 
 #### 📈 Model Upgrade Path
 
@@ -454,19 +531,19 @@ Skin flares and joint inflammation (PsA) have different triggers, different lag 
 
 ### 3️⃣ Richer Data Model
 
-Several well-documented psoriasis and PsA triggers are absent from the current data model:
+**✅ Majority completed in Phase 1.** See `docs/PHASE_1_ENGINEERING_SPEC.md` for implementation details.
 
-| Feature | Clinical Rationale |
-|---|---|
-| 🌦️ Weather / humidity | Psoriasis has well-documented climate and humidity sensitivity |
-| 🤒 Recent infections or illness | Common trigger, particularly for guttate psoriasis |
-| 🍺 Alcohol intake | Established flare correlation across multiple studies |
-| 🔄 Menstrual cycle phase | Significant hormonal flare trigger for many patients |
-| 💊 Medication dose changes | Distinguishes adherence issues from intentional dose adjustments |
-| 🦵 Specific joints affected | Clinically meaningful for PsA tracking beyond a single pain score |
-| ⏰ Morning stiffness duration | Standard PsA clinical metric used in DAPSA scoring |
-| ☀️ Phototherapy sessions | Common treatment modality worth correlating against outcomes |
-| 🍽️ New food introductions | Enables user-defined dietary experiment tracking over time |
+| Feature | Clinical Rationale | Status |
+|---|---|---|
+| 🌦️ Weather / humidity | Psoriasis has well-documented climate and humidity sensitivity | ✅ Phase 1 |
+| 🤒 Recent infections or illness | Common trigger, particularly for guttate psoriasis | ✅ Phase 1 |
+| 🍺 Alcohol intake | Established flare correlation across multiple studies | ✅ Phase 1 |
+| 🔄 Menstrual cycle phase | Significant hormonal flare trigger for many patients | ✅ Phase 1 |
+| 💊 Medication dose changes | Distinguishes adherence issues from intentional dose adjustments | ✅ Phase 1 |
+| 🦵 Specific joints affected | Clinically meaningful for PsA tracking beyond a single pain score | ✅ Phase 1 |
+| ⏰ Morning stiffness duration | Standard PsA clinical metric used in DAPSA scoring | ✅ Phase 1 |
+| ☀️ Phototherapy sessions | Common treatment modality worth correlating against outcomes | Phase 2 |
+| 🍽️ New food introductions | Enables user-defined dietary experiment tracking over time | Phase 2 |
 
 ---
 
@@ -514,9 +591,10 @@ The current recommendation engine is rule-based and generic. Telling someone who
 ---
 
 ### 8️⃣ Testing & Observability
-**✅ Partially completed in Phase 0** — 24 smoke tests (SQLite in-memory) + 1 Alembic migration integration test (real Postgres). Remaining items below are still future work.
+**✅ Expanded in Phase 1** — 76 tests total: 65 smoke tests + 5 profile tests + 6 v2 entry tests + 1 Alembic migration integration test (real Postgres). Remaining items below are still future work.
 
-- Minimal API smoke test suite covering `/healthz`, `/entries`, summary, and prediction endpoints
+- ~~Minimal API smoke test suite covering `/healthz`, `/entries`, summary, and prediction endpoints~~ (done in Phase 0)
+- ~~Profile, medication, and flare event test coverage~~ (done in Phase 1)
 - Structured logging with correlation IDs for request tracing across services
 - Sentry integration for runtime error tracking and alerting
 - Dashboard-level data quality warnings: insufficient entry count, long logging gaps, stale model artifact

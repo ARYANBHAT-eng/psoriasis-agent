@@ -55,13 +55,23 @@ alembic downgrade base
 
 ## Migration revision map
 
-| Revision | Description | Tables added | Dropped on downgrade |
-|---|---|---|---|
-| `776b153928a9` | add_model_artifacts | `model_artifacts` | `model_artifacts` |
-| `a7bfb241e40e` | add_users_and_audit_logs | `users`, `audit_logs` | `users`, `audit_logs` |
-| `829ad91aeefd` | initial_schema | `daily_entries` | `daily_entries` |
+Revisions are listed newest-first (head at top, base at bottom).
 
-Downgrading to `base` drops all three tables in reverse order.
+| Revision | Description | Tables / columns changed | Dropped on downgrade |
+|---|---|---|---|
+| `69e10b88e606` | task4_flare_events | `flare_events` (new); backfill from `entries.legacy_flare_flag` | `flare_events` + **backfilled rows deleted** |
+| `6f5d1cb040fd` | task3_medication_events | `medication_events` (new) | `medication_events` |
+| `1df35e70a8b0` | task2_external_triggers | `weather_captures` (new); `entries` gains alcohol_units, illness_active, illness_description, cycle_day_of_period | `weather_captures`; trigger columns dropped |
+| `02f40192a44c` | task1_clinical_data_model | `user_profiles` (new); `daily_entries` renamed to `entries`; entries gains morning_stiffness_minutes, affected_joints, functional_limitation, bsa_estimate, plaque_locations, legacy_flare_flag | `user_profiles`; columns dropped; table renamed back |
+| `776b153928a9` | add_model_artifacts | `model_artifacts` (new) | `model_artifacts` |
+| `a7bfb241e40e` | add_users_and_audit_logs | `users`, `audit_logs` (new) | `users`, `audit_logs` |
+| `829ad91aeefd` | initial_schema | `daily_entries` (new) | `daily_entries` |
+
+Downgrading to `base` drops all tables in reverse order (7 steps).
+
+> **Task 4 backfill warning:** The `task4_flare_events` migration includes a data backfill that converts `legacy_flare_flag` entries into `flare_events` rows with `confidence_source='legacy'`. Downgrading past this revision (`69e10b88e606`) will DELETE these backfilled rows. Any user-confirmed flare events logged after migration will also be permanently lost when the table is dropped. **Export all data before downgrading past this revision.**
+
+> **Task 1 table rename warning:** The `task1_clinical_data_model` migration renames `daily_entries` to `entries`. Any code or query that references the old table name `daily_entries` will break after this migration runs. The v1 API routes (`/entries/`) still work but use the renamed table internally.
 
 ---
 

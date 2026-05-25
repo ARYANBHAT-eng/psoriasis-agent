@@ -748,3 +748,30 @@ silently pick one — flag for discussion if they come up during execution:
 4. **Whether to drop `legacy_flare_flag` after Phase 2 validation.** The decision depends on
    whether Phase 2's model trains correctly on the new FlareEvent data. Phase 1 preserves
    the column; the drop is explicitly deferred.
+
+---
+
+## Completion State
+
+Phase 1 completed on 2026-05-26.
+
+All 7 tasks (Tasks 1–6 + Final) delivered.
+Final test count: **76 tests passing** (65 smoke + 5 profile + 6 v2 entries + migration integration test skipped without Postgres).
+Migration chain: **7 revisions** total (3 Phase 0 + 4 Phase 1). Upgrade/downgrade round-trip verified locally.
+
+### Key deviations from original spec
+
+- **Task 5+6 combined into a single task.** The spec listed them separately; they were planned and executed as one combined effort with no loss of scope.
+- **Weather provider fallback not implemented.** The spec listed OpenWeatherMap as a fallback for Open-Meteo. Open-Meteo proved reliable and key-less; the fallback was not needed and would have required an API key secret. Deferred to Phase 2 if Open-Meteo reliability becomes an issue.
+- **Morning stiffness cap is a hard 422, not a soft warning.** The spec said values beyond 480 minutes should be "capped with a validation warning, not a hard rejection." The implementation rejects >480 with 422. The frontend slider is bounded at 480 with a help text explaining the convention, which achieves the same UX goal without accepting invalid data.
+- **Entry quality scoring is client-side only.** The spec noted data quality should be "computed at read time, not stored." Implemented as a pandas `apply` in the Streamlit frontend — never hits the backend, exactly as intended.
+- **v1 routes fully preserved.** All Phase 0 entry routes (`POST /entries/`, `GET /entries/`, etc.) remain functional. The v2 router is additive; no v1 behavior was altered.
+
+### Deferred to Phase 2
+
+- Retrain ML model on `FlareEvent` labels with confidence weighting (currently trains on `legacy_flare_flag`).
+- Separate prediction models for psoriasis vs. PsA flare risk.
+- Algorithmically derived flare labels from symptom threshold crossings.
+- Drop `legacy_flare_flag` column after Phase 2 validation confirms FlareEvent-based training is stable.
+- OpenWeatherMap fallback if Open-Meteo proves unreliable in production.
+- PATCH profile clearing of nullable fields (current `exclude_none=True` limitation).
