@@ -169,7 +169,6 @@ with st.form("daily_entry_form", clear_on_submit=True):
         diet_quality = st.slider("Diet Quality", 0, 10, 5)
         missed_medication = st.selectbox("Missed Medication?", [0, 1])
         topical_applied = st.selectbox("Topical Applied?", [0, 1])
-        legacy_flare_flag = st.selectbox("Flare Today?", [0, 1])
 
     notes = st.text_input("Notes")
 
@@ -233,7 +232,6 @@ if submitted:
         "diet_quality": diet_quality,
         "missed_medication": missed_medication,
         "topical_applied": topical_applied,
-        "legacy_flare_flag": legacy_flare_flag,
         "notes": notes,
     }
 
@@ -389,12 +387,12 @@ _BASE_DISPLAY_COLS = [
     "diet_quality",
     "missed_medication",
     "topical_applied",
-    "legacy_flare_flag",
     "notes",
 ]
 
 # Add clinical/trigger columns only if data is present in the returned entries
 _CLINICAL_COLS = [
+    "legacy_flare_flag",
     "morning_stiffness_minutes",
     "affected_joints",
     "functional_limitation",
@@ -478,3 +476,70 @@ if med_list_res.status_code == 200:
         st.dataframe(med_df.sort_values("date", ascending=False), use_container_width=True)
     else:
         st.caption("No medication events logged yet.")
+
+# FLARE EVENTS
+st.divider()
+st.subheader("Flare Events")
+
+with st.form("flare_form", clear_on_submit=True):
+    fl_c1, fl_c2, fl_c3 = st.columns(3)
+    with fl_c1:
+        flare_start = st.date_input("Start date", value=date.today(), key="flare_start")
+        flare_end_toggle = st.checkbox("Flare ended?")
+        flare_end = st.date_input("End date", value=date.today(), key="flare_end") if flare_end_toggle else None
+    with fl_c2:
+        flare_condition = st.selectbox("Condition", ["psoriasis", "psa", "both"])
+        flare_severity = st.slider("Severity (1–10)", 1, 10, 5)
+    with fl_c3:
+        flare_notes = st.text_input("Notes (optional)", key="flare_notes")
+    flare_submitted = st.form_submit_button("Log Flare")
+
+if flare_submitted:
+    flare_payload = {
+        "start_date":     str(flare_start),
+        "condition_type": flare_condition,
+        "severity":       flare_severity,
+    }
+    if flare_end:
+        flare_payload["end_date"] = str(flare_end)
+    if flare_notes.strip():
+        flare_payload["notes"] = flare_notes.strip()
+    fr = requests.post(f"{API_BASE}/v2/flares/", json=flare_payload, headers=_headers())
+    if _handle_401(fr):
+        st.stop()
+    if fr.status_code == 201:
+        st.success("Flare logged")
+    else:
+        st.error(fr.text)
+
+fl_res = requests.get(f"{API_BASE}/v2/flares/", headers=_headers(), timeout=5)
+if fl_res.status_code == 200:
+    all_flares = fl_res.json()
+    open_flares   = [f for f in all_flares if f["end_date"] is None]
+    closed_flares = [f for f in all_flares if f["end_date"] is not None]
+
+    if open_flares:
+        st.markdown("**Open Flares**")
+        open_df = pd.DataFrame(open_flares)[["id", "start_date", "condition_type", "severity", "confidence_source", "notes"]]
+        st.dataframe(open_df, use_container_width=True)
+
+        st.markdown("**Close a flare**")
+        open_ids = [f["id"] for f in open_flares]
+        close_id = st.selectbox("Select flare ID to close", open_ids, key="close_flare_id")
+        close_date = st.date_input("End date", value=date.today(), key="close_flare_date")
+        if st.button("Close Flare"):
+            cr = requests.patch(f"{API_BASE}/v2/flares/{close_id}", json={"end_date": str(close_date)}, headers=_headers())
+            if _handle_401(cr):
+                st.stop()
+            if cr.status_code == 200:
+                st.success("Flare closed")
+                st.rerun()
+            else:
+                st.error(cr.text)
+    else:
+        st.caption("No open flares.")
+
+    if closed_flares:
+        st.markdown("**Closed Flares**")
+        closed_df = pd.DataFrame(closed_flares)[["id", "start_date", "end_date", "condition_type", "severity", "confidence_source", "notes"]]
+        st.dataframe(closed_df.sort_values("start_date", ascending=False), use_container_width=True)

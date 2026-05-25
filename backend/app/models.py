@@ -70,6 +70,20 @@ class MedicationEvent(Base):
     notes           = Column(String, nullable=True)
 
 
+class FlareEvent(Base):
+    __tablename__ = "flare_events"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    user_id           = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    start_date        = Column(String, nullable=False, index=True)
+    end_date          = Column(String, nullable=True)              # NULL = open/ongoing
+    condition_type    = Column(String, nullable=False)             # "psoriasis" | "psa" | "both"
+    severity          = Column(Integer, nullable=True)             # 1–10; NULL on legacy backfills
+    confidence_source = Column(String, nullable=False)             # "user_confirmed" | "algorithm_derived" | "legacy"
+    notes             = Column(String, nullable=True)
+    created_at        = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class User(Base):
     __tablename__ = "users"
 

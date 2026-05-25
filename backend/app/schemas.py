@@ -303,3 +303,57 @@ class MedicationEventRead(BaseModel):
     notes:           Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class FlareConditionType(str, Enum):
+    psoriasis = "psoriasis"
+    psa       = "psa"
+    both      = "both"
+
+
+class FlareConfidenceSource(str, Enum):
+    user_confirmed    = "user_confirmed"
+    algorithm_derived = "algorithm_derived"
+    legacy            = "legacy"
+
+
+class FlareEventCreate(BaseModel):
+    start_date:     str
+    end_date:       Optional[str] = None
+    condition_type: FlareConditionType
+    severity:       Optional[int] = None
+    notes:          Optional[str] = None
+
+    @field_validator("severity", mode="after")
+    @classmethod
+    def validate_severity(cls, v):
+        if v is not None and not (1 <= v <= 10):
+            raise ValueError("severity must be between 1 and 10")
+        return v
+
+
+class FlareEventUpdate(BaseModel):
+    end_date: Optional[str] = None
+    severity: Optional[int] = None
+    notes:    Optional[str] = None
+
+    @field_validator("severity", mode="after")
+    @classmethod
+    def validate_severity(cls, v):
+        if v is not None and not (1 <= v <= 10):
+            raise ValueError("severity must be between 1 and 10")
+        return v
+
+
+class FlareEventRead(BaseModel):
+    id:                int
+    user_id:           int
+    start_date:        str
+    end_date:          Optional[str] = None
+    condition_type:    str
+    severity:          Optional[int] = None
+    confidence_source: str
+    notes:             Optional[str] = None
+    created_at:        datetime
+
+    model_config = {"from_attributes": True}

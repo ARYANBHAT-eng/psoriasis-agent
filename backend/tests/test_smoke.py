@@ -64,6 +64,8 @@ def test_token_wrong_password(client):
     ("GET",  "/v2/entries/2026-01-01/context"),
     ("GET",  "/v2/medications/events"),
     ("POST", "/v2/medications/events"),
+    ("GET",  "/v2/flares/"),
+    ("POST", "/v2/flares/"),
 ])
 def test_protected_routes_require_auth(client, method, path):
     r = client.request(method, path)
@@ -342,6 +344,135 @@ def test_export_includes_medication_events(client, auth_headers):
     assert "medication_events" in data
     assert len(data["medication_events"]) == 1
     assert data["medication_events"][0]["medication_name"] == "Methotrexate"
+
+
+# ---------------------------------------------------------------------------
+# Flare events
+# ---------------------------------------------------------------------------
+
+_BASE_FLARE = {
+    "start_date":     "2026-01-10",
+    "condition_type": "psoriasis",
+    "severity":       7,
+}
+
+
+def test_create_flare_event(client, auth_headers):
+    r = client.post("/v2/flares/", json=_BASE_FLARE, headers=auth_headers)
+    assert r.status_code == 201
+    assert r.json()["start_date"] == "2026-01-10"
+    assert r.json()["condition_type"] == "psoriasis"
+    assert r.json()["confidence_source"] == "user_confirmed"
+    assert r.json()["end_date"] is None
+    assert "id" in r.json()
+
+
+def test_create_open_flare(client, auth_headers):
+    r = client.post("/v2/flares/", json={**_BASE_FLARE, "end_date": None}, headers=auth_headers)
+    assert r.status_code == 201
+    assert r.json()["end_date"] is None
+
+
+def test_list_flares(client, auth_headers):
+    client.post("/v2/flares/", json=_BASE_FLARE, headers=auth_headers)
+    r = client.get("/v2/flares/", headers=auth_headers)
+    assert r.status_code == 200
+    assert len(r.json()) == 1
+
+
+def test_list_flares_from_filter(client, auth_headers):
+    for d in ["2026-01-01", "2026-02-01", "2026-03-01"]:
+        client.post("/v2/flares/", json={**_BASE_FLARE, "start_date": d}, headers=auth_headers)
+    r = client.get("/v2/flares/?from=2026-02-01", headers=auth_headers)
+    assert len(r.json()) == 2
+
+
+def test_list_flares_condition_filter(client, auth_headers):
+    client.post("/v2/flares/", json={**_BASE_FLARE, "condition_type": "psoriasis"}, headers=auth_headers)
+    client.post("/v2/flares/", json={**_BASE_FLARE, "condition_type": "psa"}, headers=auth_headers)
+    r = client.get("/v2/flares/?condition=psa", headers=auth_headers)
+    assert len(r.json()) == 1
+    assert r.json()[0]["condition_type"] == "psa"
+
+
+def test_patch_close_flare(client, auth_headers):
+    flare_id = client.post("/v2/flares/", json=_BASE_FLARE, headers=auth_headers).json()["id"]
+    r = client.patch(f"/v2/flares/{flare_id}", json={"end_date": "2026-01-15"}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["end_date"] == "2026-01-15"
+
+
+def test_patch_severity_notes(client, auth_headers):
+    flare_id = client.post("/v2/flares/", json=_BASE_FLARE, headers=auth_headers).json()["id"]
+    r = client.patch(f"/v2/flares/{flare_id}", json={"severity": 9, "notes": "very bad"}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["severity"] == 9
+    assert r.json()["notes"] == "very bad"
+
+
+def test_patch_nonexistent_flare(client, auth_headers):
+    r = client.patch("/v2/flares/9999", json={"end_date": "2026-01-15"}, headers=auth_headers)
+    assert r.status_code == 404
+
+
+def test_delete_flare(client, auth_headers):
+    flare_id = client.post("/v2/flares/", json=_BASE_FLARE, headers=auth_headers).json()["id"]
+    assert client.delete(f"/v2/flares/{flare_id}", headers=auth_headers).status_code == 204
+    assert len(client.get("/v2/flares/", headers=auth_headers).json()) == 0
+
+
+def test_delete_nonexistent_flare(client, auth_headers):
+    assert client.delete("/v2/flares/9999", headers=auth_headers).status_code == 404
+
+
+def test_invalid_condition_type(client, auth_headers):
+    assert client.post("/v2/flares/", json={**_BASE_FLARE, "condition_type": "migraine"}, headers=auth_headers).status_code == 422
+
+
+def test_severity_out_of_range(client, auth_headers):
+    assert client.post("/v2/flares/", json={**_BASE_FLARE, "severity": 11}, headers=auth_headers).status_code == 422
+
+
+def test_export_includes_flare_events(client, auth_headers):
+    client.post("/v2/flares/", json=_BASE_FLARE, headers=auth_headers)
+    r = client.get("/entries/export", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert "flare_events" in data
+    assert len(data["flare_events"]) == 1
+    assert data["flare_events"][0]["condition_type"] == "psoriasis"
+
+
+def test_backfill_creates_legacy_flare_events(db_session):
+    from sqlalchemy import text
+    from app.models import User, Entry, FlareEvent
+
+    user = User(username="btest", hashed_password="h")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    for i, flag in [(1, 1), (2, 0), (3, 1)]:
+        e = Entry(
+            user_id=user.id, date=f"2026-0{i}-01",
+            itch=3, redness=3, scaling=3, joint_pain=3, fatigue=3,
+            stress_level=3, sleep_quality=7, diet_quality=7,
+            missed_medication=0, topical_applied=1, legacy_flare_flag=flag,
+        )
+        db_session.add(e)
+    db_session.commit()
+
+    db_session.execute(text("""
+        INSERT INTO flare_events (user_id, start_date, end_date, condition_type, confidence_source)
+        SELECT user_id, date, date, 'psoriasis', 'legacy'
+        FROM entries
+        WHERE legacy_flare_flag IS NOT NULL AND legacy_flare_flag != 0
+          AND user_id = :uid
+    """), {"uid": user.id})
+    db_session.commit()
+
+    count = db_session.query(FlareEvent).filter_by(user_id=user.id, confidence_source="legacy").count()
+    assert count == 2
 
 
 # ---------------------------------------------------------------------------

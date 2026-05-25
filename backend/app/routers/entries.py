@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_client_ip, get_current_user, log_audit_event
 from app.database import get_db
-from app.models import Entry, MedicationEvent, User
+from app.models import Entry, FlareEvent, MedicationEvent, User
 from app import crud, schemas
 from app.services.weather import maybe_trigger_weather
 
@@ -102,6 +102,18 @@ def export_data(
         d.pop("_sa_instance_state", None)
         med_events.append(d)
 
+    flare_rows = (
+        db.query(FlareEvent)
+        .filter(FlareEvent.user_id == current_user.id)
+        .order_by(FlareEvent.start_date.asc())
+        .all()
+    )
+    flare_events_export = []
+    for row in flare_rows:
+        d = row.__dict__.copy()
+        d.pop("_sa_instance_state", None)
+        flare_events_export.append(d)
+
     data = {
         "user": {
             "username": current_user.username,
@@ -109,6 +121,7 @@ def export_data(
         },
         "entries": entries,
         "medication_events": med_events,
+        "flare_events": flare_events_export,
     }
 
     log_audit_event("data.export", current_user.username, get_client_ip(request), True)

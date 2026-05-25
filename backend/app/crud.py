@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
 from datetime import date, timedelta
 
-from app.models import Entry, MedicationEvent
-from app.schemas import EntryCreate, MedicationEventCreate
+from app.models import Entry, FlareEvent, MedicationEvent
+from app.schemas import EntryCreate, FlareEventCreate, FlareEventUpdate, MedicationEventCreate
 
 
 def upsert_entry(db: Session, entry: EntryCreate, user_id: int):
@@ -96,6 +96,55 @@ def delete_medication_event(db: Session, event_id: int, user_id: int) -> bool:
     obj = db.query(MedicationEvent).filter(
         MedicationEvent.id == event_id,
         MedicationEvent.user_id == user_id,
+    ).first()
+    if not obj:
+        return False
+    db.delete(obj)
+    db.commit()
+    return True
+
+
+def create_flare_event(db: Session, event: FlareEventCreate, user_id: int):
+    obj = FlareEvent(
+        user_id=user_id,
+        confidence_source="user_confirmed",
+        **event.model_dump(),
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def get_flare_events(db: Session, user_id: int, from_date=None, to_date=None, condition=None):
+    q = db.query(FlareEvent).filter(FlareEvent.user_id == user_id)
+    if from_date:
+        q = q.filter(FlareEvent.start_date >= from_date)
+    if to_date:
+        q = q.filter(FlareEvent.start_date <= to_date)
+    if condition:
+        q = q.filter(FlareEvent.condition_type == condition)
+    return q.order_by(FlareEvent.start_date.desc()).all()
+
+
+def update_flare_event(db: Session, flare_id: int, user_id: int, update: FlareEventUpdate):
+    obj = db.query(FlareEvent).filter(
+        FlareEvent.id == flare_id,
+        FlareEvent.user_id == user_id,
+    ).first()
+    if not obj:
+        return None
+    for k, v in update.model_dump(exclude_none=True).items():
+        setattr(obj, k, v)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def delete_flare_event(db: Session, flare_id: int, user_id: int) -> bool:
+    obj = db.query(FlareEvent).filter(
+        FlareEvent.id == flare_id,
+        FlareEvent.user_id == user_id,
     ).first()
     if not obj:
         return False
