@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,7 @@ def test_token_wrong_password(client):
     ("GET",  "/entries/export"),
     ("GET",  "/ml/predict"),
     ("POST", "/ml/train"),
+    ("GET",  "/v2/entries/2026-01-01/context"),
 ])
 def test_protected_routes_require_auth(client, method, path):
     r = client.request(method, path)
@@ -191,3 +193,161 @@ def test_delete_account_success(client, auth_headers):
     # Subsequent request with the now-invalid user's token is rejected
     r2 = client.get("/auth/me", headers=auth_headers)
     assert r2.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# External triggers — context endpoint
+# ---------------------------------------------------------------------------
+
+def test_context_endpoint_no_weather(client, auth_headers, seeded_entries):
+    r = client.get("/v2/entries/2026-01-01/context", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["entry"]["date"] == "2026-01-01"
+    assert data["weather"] is None
+
+
+def test_context_endpoint_missing_date(client, auth_headers):
+    r = client.get("/v2/entries/2026-12-31/context", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["entry"] is None
+    assert r.json()["weather"] is None
+
+
+# ---------------------------------------------------------------------------
+# External triggers — alcohol
+# ---------------------------------------------------------------------------
+
+def test_alcohol_zero_stored(client, auth_headers):
+    r = client.post("/entries/", json={**_BASE_ENTRY, "alcohol_units": 0}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["alcohol_units"] == 0
+
+
+def test_alcohol_null_when_absent(client, auth_headers):
+    r = client.post("/entries/", json=_BASE_ENTRY, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["alcohol_units"] is None
+
+
+def test_alcohol_negative_rejected(client, auth_headers):
+    r = client.post("/entries/", json={**_BASE_ENTRY, "alcohol_units": -1}, headers=auth_headers)
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# External triggers — illness
+# ---------------------------------------------------------------------------
+
+def test_illness_description_too_long(client, auth_headers):
+    r = client.post("/entries/", json={**_BASE_ENTRY, "illness_description": "x" * 501}, headers=auth_headers)
+    assert r.status_code == 422
+
+
+def test_illness_active_with_description(client, auth_headers):
+    r = client.post("/entries/", json={**_BASE_ENTRY, "illness_active": True, "illness_description": "flu"}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["illness_active"] is True
+    assert r.json()["illness_description"] == "flu"
+
+
+# ---------------------------------------------------------------------------
+# External triggers — cycle gating
+# ---------------------------------------------------------------------------
+
+def test_cycle_day_dropped_when_not_tracked(client, auth_headers):
+    # Default profile has tracks_cycle=False
+    r = client.post("/entries/", json={**_BASE_ENTRY, "cycle_day_of_period": 5}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["cycle_day_of_period"] is None
+
+
+def test_cycle_day_stored_when_tracked(client, auth_headers):
+    client.patch("/v2/profile", json={"tracks_cycle": True}, headers=auth_headers)
+    r = client.post("/entries/", json={**_BASE_ENTRY, "cycle_day_of_period": 5}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["cycle_day_of_period"] == 5
+
+
+def test_cycle_day_out_of_range_rejected(client, auth_headers):
+    client.patch("/v2/profile", json={"tracks_cycle": True}, headers=auth_headers)
+    r = client.post("/entries/", json={**_BASE_ENTRY, "cycle_day_of_period": 61}, headers=auth_headers)
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# External triggers — weather service (direct unit tests, no HTTP)
+# ---------------------------------------------------------------------------
+
+def _make_mock_weather_response():
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "daily": {
+            "time": ["2026-01-01"],
+            "temperature_2m_max": [25.0],
+            "uv_index_max": [6.0],
+            "precipitation_sum": [0.5],
+        },
+        "hourly": {
+            "time": [f"2026-01-01T{h:02d}:00" for h in range(24)],
+            "relative_humidity_2m": [65] * 24,
+            "cloud_cover": [40] * 24,
+            "pressure_msl": [1012.0] * 24,
+        },
+    }
+    mock_resp.raise_for_status = MagicMock()
+    return mock_resp
+
+
+def test_fetch_and_save_direct(db_session):
+    from app.models import User, WeatherCapture
+    from app.services.weather import fetch_and_save
+
+    user = User(username="wtest", hashed_password="h")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    with patch("app.services.weather.requests.get", return_value=_make_mock_weather_response()):
+        fetch_and_save(user.id, 32.73, 74.86, "2026-01-01", db_session)
+
+    capture = db_session.query(WeatherCapture).filter_by(user_id=user.id, date="2026-01-01").first()
+    assert capture is not None
+    assert capture.temperature_c == 25.0
+    assert capture.humidity_pct == 65.0  # hourly index 12
+    assert capture.uv_index == 6.0
+    assert capture.precipitation_mm == 0.5
+    assert capture.source == "open-meteo"
+
+
+def test_fetch_and_save_idempotent(db_session):
+    from app.models import User, WeatherCapture
+    from app.services.weather import fetch_and_save
+
+    user = User(username="wtest2", hashed_password="h")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    with patch("app.services.weather.requests.get", return_value=_make_mock_weather_response()):
+        fetch_and_save(user.id, 32.73, 74.86, "2026-01-01", db_session)
+        fetch_and_save(user.id, 32.73, 74.86, "2026-01-01", db_session)
+
+    count = db_session.query(WeatherCapture).filter_by(user_id=user.id, date="2026-01-01").count()
+    assert count == 1
+
+
+def test_weather_failure_no_crash(db_session):
+    from app.models import User, WeatherCapture
+    from app.services.weather import fetch_and_save
+
+    user = User(username="wtest3", hashed_password="h")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    with patch("app.services.weather.requests.get", side_effect=Exception("timeout")):
+        fetch_and_save(user.id, 32.73, 74.86, "2026-01-01", db_session)  # must not raise
+
+    count = db_session.query(WeatherCapture).filter_by(user_id=user.id, date="2026-01-01").count()
+    assert count == 0

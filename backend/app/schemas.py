@@ -27,6 +27,10 @@ class EntryBase(BaseModel):
     functional_limitation: Optional[int] = None
     bsa_estimate: Optional[float] = None
     plaque_locations: Optional[List[str]] = None
+    alcohol_units: Optional[int] = None
+    illness_active: Optional[bool] = None
+    illness_description: Optional[str] = None
+    cycle_day_of_period: Optional[int] = None
 
     @model_validator(mode="after")
     def map_legacy_flare(self):
@@ -58,6 +62,27 @@ class EntryBase(BaseModel):
             raise ValueError("bsa_estimate must be between 0.0 and 100.0")
         return v
 
+    @field_validator("alcohol_units", mode="after")
+    @classmethod
+    def validate_alcohol(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("alcohol_units must be 0 or greater")
+        return v
+
+    @field_validator("illness_description", mode="after")
+    @classmethod
+    def validate_illness_description(cls, v):
+        if v is not None and len(v) > 500:
+            raise ValueError("illness_description must be 500 characters or fewer")
+        return v
+
+    @field_validator("cycle_day_of_period", mode="after")
+    @classmethod
+    def validate_cycle_day(cls, v):
+        if v is not None and not (1 <= v <= 60):
+            raise ValueError("cycle_day_of_period must be between 1 and 60")
+        return v
+
 
 class EntryCreate(EntryBase):
     pass
@@ -83,6 +108,10 @@ class Entry(BaseModel):
     functional_limitation: Optional[int] = None
     bsa_estimate: Optional[float] = None
     plaque_locations: Optional[List[str]] = None
+    alcohol_units: Optional[int] = None
+    illness_active: Optional[bool] = None
+    illness_description: Optional[str] = None
+    cycle_day_of_period: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -207,3 +236,24 @@ class UserProfileRead(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class WeatherCaptureRead(BaseModel):
+    id: int
+    user_id: int
+    date: str
+    fetched_at: datetime
+    temperature_c: Optional[float] = None
+    humidity_pct: Optional[float] = None
+    uv_index: Optional[float] = None
+    precipitation_mm: Optional[float] = None
+    cloud_cover_pct: Optional[float] = None
+    pressure_hpa: Optional[float] = None
+    source: str
+
+    model_config = {"from_attributes": True}
+
+
+class EntryContextResponse(BaseModel):
+    entry: Optional[Entry] = None
+    weather: Optional[WeatherCaptureRead] = None

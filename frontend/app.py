@@ -85,6 +85,7 @@ if "profile" not in st.session_state:
 profile = st.session_state.profile
 has_psoriasis = profile.get("has_psoriasis", True)
 has_psa = profile.get("has_psa", False)
+tracks_cycle = profile.get("tracks_cycle", False)
 
 
 # SIDEBAR
@@ -199,6 +200,24 @@ with st.form("daily_entry_form", clear_on_submit=True):
         with pso_c2:
             plaque_locations = st.multiselect("Plaque Locations", _PLAQUE_OPTIONS)
 
+    # Lifestyle triggers — always shown
+    st.markdown("**Lifestyle**")
+    lf_c1, lf_c2 = st.columns(2)
+    with lf_c1:
+        log_alcohol = st.checkbox("Log alcohol today?")
+        alcohol_units = st.number_input("Alcohol units", min_value=0, value=0, step=1) if log_alcohol else None
+    with lf_c2:
+        illness_active = st.checkbox("Illness active?")
+        illness_description = None
+        if illness_active:
+            illness_description = st.text_input("Illness description (optional, max 500 chars)")
+
+    # Cycle phase — gated by tracks_cycle
+    cycle_day_of_period = None
+    if tracks_cycle:
+        st.markdown("**Cycle**")
+        cycle_day_of_period = st.number_input("Day of period", min_value=1, max_value=60, value=1, step=1)
+
     submitted = st.form_submit_button("Save Entry")
 
 if submitted:
@@ -226,6 +245,15 @@ if submitted:
     if has_psoriasis:
         payload["bsa_estimate"] = bsa_estimate
         payload["plaque_locations"] = plaque_locations or []
+
+    if log_alcohol:
+        payload["alcohol_units"] = alcohol_units
+    if illness_active:
+        payload["illness_active"] = True
+        if illness_description:
+            payload["illness_description"] = illness_description
+    if tracks_cycle and cycle_day_of_period:
+        payload["cycle_day_of_period"] = cycle_day_of_period
 
     res = requests.post(f"{API_BASE}/entries/", json=payload, headers=_headers())
     if _handle_401(res):
@@ -297,6 +325,28 @@ if summary_res.status_code == 200:
 else:
     st.warning("Summary not available")
 
+# WEATHER PANEL — shown only when profile has a saved location
+if profile.get("location_lat") and profile.get("location_lon"):
+    st.divider()
+    st.subheader("Today's Weather")
+    today_str = date.today().isoformat()
+    try:
+        ctx_res = requests.get(f"{API_BASE}/v2/entries/{today_str}/context", headers=_headers(), timeout=5)
+        if ctx_res.status_code == 200:
+            w = ctx_res.json().get("weather")
+            if w:
+                wc1, wc2, wc3, wc4, wc5, wc6 = st.columns(6)
+                wc1.metric("Temp (°C)",   f"{w['temperature_c']:.1f}"    if w["temperature_c"]    is not None else "—")
+                wc2.metric("Humidity (%)", f"{w['humidity_pct']:.1f}"    if w["humidity_pct"]     is not None else "—")
+                wc3.metric("UV Index",     f"{w['uv_index']:.1f}"        if w["uv_index"]         is not None else "—")
+                wc4.metric("Rain (mm)",    f"{w['precipitation_mm']:.1f}" if w["precipitation_mm"] is not None else "—")
+                wc5.metric("Cloud (%)",    f"{w['cloud_cover_pct']:.1f}" if w["cloud_cover_pct"]  is not None else "—")
+                wc6.metric("Pressure",     f"{w['pressure_hpa']:.1f}"   if w["pressure_hpa"]     is not None else "—")
+            else:
+                st.caption("Weather data not yet available for today — will appear after the next page load.")
+    except Exception:
+        pass
+
 # RISK TREND
 st.divider()
 st.subheader("Symptom Trend with Risk Bands")
@@ -343,13 +393,17 @@ _BASE_DISPLAY_COLS = [
     "notes",
 ]
 
-# Add clinical columns only if data is present in the returned entries
+# Add clinical/trigger columns only if data is present in the returned entries
 _CLINICAL_COLS = [
     "morning_stiffness_minutes",
     "affected_joints",
     "functional_limitation",
     "bsa_estimate",
     "plaque_locations",
+    "alcohol_units",
+    "illness_active",
+    "illness_description",
+    "cycle_day_of_period",
 ]
 
 display_cols = _BASE_DISPLAY_COLS + [c for c in _CLINICAL_COLS if c in df_view.columns and df_view[c].notna().any()]

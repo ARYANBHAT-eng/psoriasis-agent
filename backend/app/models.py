@@ -32,6 +32,29 @@ class Entry(Base):
     functional_limitation = Column(Integer, nullable=True)       # 0–10
     bsa_estimate = Column(Float, nullable=True)                  # 0.0–100.0 %
     plaque_locations = Column(JSON, nullable=True)
+    alcohol_units = Column(Integer, nullable=True)               # 0="none today", NULL="not recorded"
+    illness_active = Column(Boolean, nullable=True)
+    illness_description = Column(String, nullable=True)
+    cycle_day_of_period = Column(Integer, nullable=True)         # gated by tracks_cycle
+
+
+class WeatherCapture(Base):
+    __tablename__ = "weather_captures"
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_weather_user_date"),
+    )
+
+    id               = Column(Integer, primary_key=True, index=True)
+    user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    date             = Column(String, nullable=False)
+    fetched_at       = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    temperature_c    = Column(Float, nullable=True)
+    humidity_pct     = Column(Float, nullable=True)
+    uv_index         = Column(Float, nullable=True)
+    precipitation_mm = Column(Float, nullable=True)
+    cloud_cover_pct  = Column(Float, nullable=True)
+    pressure_hpa     = Column(Float, nullable=True)
+    source           = Column(String, nullable=False, default="open-meteo")
 
 
 class User(Base):

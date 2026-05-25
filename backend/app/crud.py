@@ -60,6 +60,10 @@ def get_summary_for_weeks(db: Session, user_id: int, weeks: int = 1):
     }
 
 
+def get_entry_by_date(db: Session, user_id: int, date: str):
+    return db.query(Entry).filter(Entry.user_id == user_id, Entry.date == date).first()
+
+
 def get_recent_entries(db: Session, user_id: int, days: int):
     cutoff = (date.today() - timedelta(days=days)).isoformat()
 

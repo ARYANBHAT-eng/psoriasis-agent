@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -8,9 +8,19 @@ from app.auth import get_client_ip, get_current_user, log_audit_event
 from app.database import get_db
 from app.models import Entry, User
 from app import crud, schemas
+from app.services.weather import maybe_trigger_weather
 
 router = APIRouter(prefix="/entries", tags=["Entries"])
 v2_router = APIRouter(prefix="/v2/entries", tags=["Entries v2"])
+
+
+def _gate_cycle(entry: schemas.EntryCreate, current_user: User, db: Session) -> schemas.EntryCreate:
+    """Drop cycle_day_of_period if the user's profile has tracks_cycle=False."""
+    from app.models import UserProfile
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    if not profile or not profile.tracks_cycle:
+        entry = entry.model_copy(update={"cycle_day_of_period": None})
+    return entry
 
 
 # ---------------------------------------------------------------------------
@@ -20,17 +30,22 @@ v2_router = APIRouter(prefix="/v2/entries", tags=["Entries v2"])
 @router.post("/", response_model=schemas.Entry)
 def create_or_update_entry(
     entry: schemas.EntryCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    entry = _gate_cycle(entry, current_user, db)
+    maybe_trigger_weather(background_tasks, current_user, db)
     return crud.upsert_entry(db, entry, current_user.id)
 
 
 @router.get("/", response_model=list[schemas.Entry])
 def list_entries(
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    maybe_trigger_weather(background_tasks, current_user, db)
     return crud.get_all_entries(db, current_user.id)
 
 
@@ -95,18 +110,38 @@ def export_data(
 # v2 routes — canonical, accepts new clinical fields
 # ---------------------------------------------------------------------------
 
-@v2_router.post("/", response_model=schemas.Entry)
-def create_or_update_entry_v2(
-    entry: schemas.EntryCreate,
+@v2_router.get("/{date}/context", response_model=schemas.EntryContextResponse)
+def get_entry_context(
+    date: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    from app.models import WeatherCapture
+    entry = crud.get_entry_by_date(db, current_user.id, date)
+    weather = db.query(WeatherCapture).filter(
+        WeatherCapture.user_id == current_user.id,
+        WeatherCapture.date == date,
+    ).first()
+    return schemas.EntryContextResponse(entry=entry, weather=weather)
+
+
+@v2_router.post("/", response_model=schemas.Entry)
+def create_or_update_entry_v2(
+    entry: schemas.EntryCreate,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    entry = _gate_cycle(entry, current_user, db)
+    maybe_trigger_weather(background_tasks, current_user, db)
     return crud.upsert_entry(db, entry, current_user.id)
 
 
 @v2_router.get("/", response_model=list[schemas.Entry])
 def list_entries_v2(
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    maybe_trigger_weather(background_tasks, current_user, db)
     return crud.get_all_entries(db, current_user.id)
