@@ -15,7 +15,16 @@ from alembic.config import Config
 _BASE_URL = "postgresql://psoriasis:psoriasis@localhost:5433/postgres"
 _TEST_DB  = "psoriasis_migration_test"
 _TEST_URL = f"postgresql://psoriasis:psoriasis@localhost:5433/{_TEST_DB}"
-_EXPECTED = {"daily_entries", "users", "audit_logs", "model_artifacts"}
+_EXPECTED = {
+    "entries",
+    "users",
+    "audit_logs",
+    "model_artifacts",
+    "user_profiles",
+    "weather_captures",
+    "medication_events",
+    "flare_events",
+}
 
 
 def _postgres_available() -> bool:

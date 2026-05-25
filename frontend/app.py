@@ -26,6 +26,14 @@ def _handle_401(res) -> bool:
     return res.status_code == 401
 
 
+def _show_error(res):
+    try:
+        detail = res.json().get("detail", res.text)
+        st.error(detail if isinstance(detail, str) else str(detail))
+    except Exception:
+        st.error(res.text)
+
+
 # AUTH GATE
 if "token" not in st.session_state:
     try:
@@ -96,6 +104,8 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
+    page = st.radio("Navigate", ["Dashboard", "Insights"], label_visibility="collapsed")
+    st.divider()
     with st.expander("Profile Settings"):
         pso_toggle = st.checkbox("I have Psoriasis", value=has_psoriasis)
         psa_toggle = st.checkbox("I have Psoriatic Arthritis (PsA)", value=has_psa)
@@ -123,6 +133,29 @@ with st.sidebar:
                 st.rerun()
             else:
                 st.error(pr.json().get("detail", pr.text))
+
+    st.divider()
+    if st.button("Download My Data"):
+        exp_res = requests.get(f"{API_BASE}/entries/export", headers=_headers(), timeout=10)
+        if exp_res.status_code == 200:
+            st.download_button(
+                label="Save JSON",
+                data=exp_res.content,
+                file_name="my-psoriasis-data.json",
+                mime="application/json",
+            )
+        else:
+            st.error("Export failed")
+
+
+# INSIGHTS PAGE EARLY EXIT
+if page == "Insights":
+    st.title("Insights")
+    st.info(
+        "Personalized insights will appear here once Phase 2 ML models are trained on your data. "
+        "Keep logging daily — the more data, the better the patterns."
+    )
+    st.stop()
 
 
 # HEADER
@@ -259,7 +292,7 @@ if submitted:
     if res.status_code == 200:
         st.success("Entry saved successfully")
     else:
-        st.error(res.text)
+        _show_error(res)
 
 # LOAD DATA
 entries_res = requests.get(f"{API_BASE}/entries/", headers=_headers())
@@ -296,6 +329,37 @@ def risk_band(score):
 
 
 df["risk"] = df["symptom_total"].apply(risk_band)
+
+
+def _quality_label(row):
+    def is_filled(val):
+        if val is None:
+            return False
+        try:
+            if pd.isna(val):
+                return False
+        except (TypeError, ValueError):
+            pass
+        if isinstance(val, list):
+            return len(val) > 0
+        return True
+
+    core = ["itch", "redness", "scaling", "sleep_quality", "stress_level", "diet_quality"]
+    extra = []
+    if has_psoriasis:
+        extra += ["bsa_estimate", "plaque_locations"]
+    if has_psa:
+        extra += ["morning_stiffness_minutes", "affected_joints", "functional_limitation"]
+
+    fields = [f for f in core + extra if f in row.index]
+    if not fields:
+        return "High"
+    filled = sum(1 for f in fields if is_filled(row[f]))
+    ratio = filled / len(fields)
+    return "High" if ratio >= 0.8 else "Medium" if ratio >= 0.5 else "Low"
+
+
+df["quality"] = df.apply(_quality_label, axis=1)
 
 # APPLY VIEW FILTER LAST
 df_view = df.tail(days)
@@ -377,6 +441,7 @@ st.subheader("Daily Entries")
 
 _BASE_DISPLAY_COLS = [
     "date",
+    "quality",
     "itch",
     "redness",
     "scaling",
@@ -466,7 +531,7 @@ if med_submitted and med_name.strip():
     if med_res.status_code == 201:
         st.success("Event logged")
     else:
-        st.error(med_res.text)
+        _show_error(med_res)
 
 med_list_res = requests.get(f"{API_BASE}/v2/medications/events", headers=_headers(), timeout=5)
 if med_list_res.status_code == 200:
@@ -510,7 +575,7 @@ if flare_submitted:
     if fr.status_code == 201:
         st.success("Flare logged")
     else:
-        st.error(fr.text)
+        _show_error(fr)
 
 fl_res = requests.get(f"{API_BASE}/v2/flares/", headers=_headers(), timeout=5)
 if fl_res.status_code == 200:
@@ -535,7 +600,7 @@ if fl_res.status_code == 200:
                 st.success("Flare closed")
                 st.rerun()
             else:
-                st.error(cr.text)
+                _show_error(cr)
     else:
         st.caption("No open flares.")
 
