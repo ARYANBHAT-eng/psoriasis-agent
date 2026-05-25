@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
 from datetime import date, timedelta
 
-from app.models import Entry
-from app.schemas import EntryCreate
+from app.models import Entry, MedicationEvent
+from app.schemas import EntryCreate, MedicationEventCreate
 
 
 def upsert_entry(db: Session, entry: EntryCreate, user_id: int):
@@ -73,3 +73,32 @@ def get_recent_entries(db: Session, user_id: int, days: int):
         .order_by(Entry.date.asc())
         .all()
     )
+
+
+def create_medication_event(db: Session, event: MedicationEventCreate, user_id: int):
+    obj = MedicationEvent(user_id=user_id, **event.model_dump())
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def get_medication_events(db: Session, user_id: int, from_date=None, to_date=None):
+    q = db.query(MedicationEvent).filter(MedicationEvent.user_id == user_id)
+    if from_date:
+        q = q.filter(MedicationEvent.date >= from_date)
+    if to_date:
+        q = q.filter(MedicationEvent.date <= to_date)
+    return q.order_by(MedicationEvent.date.desc()).all()
+
+
+def delete_medication_event(db: Session, event_id: int, user_id: int) -> bool:
+    obj = db.query(MedicationEvent).filter(
+        MedicationEvent.id == event_id,
+        MedicationEvent.user_id == user_id,
+    ).first()
+    if not obj:
+        return False
+    db.delete(obj)
+    db.commit()
+    return True

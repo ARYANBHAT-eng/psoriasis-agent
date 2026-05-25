@@ -57,6 +57,19 @@ class WeatherCapture(Base):
     source           = Column(String, nullable=False, default="open-meteo")
 
 
+class MedicationEvent(Base):
+    __tablename__ = "medication_events"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    date            = Column(String, nullable=False, index=True)
+    recorded_at     = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    medication_name = Column(String, nullable=False)
+    event_type      = Column(String, nullable=False)   # validated as enum in schema
+    dose            = Column(String, nullable=True)
+    notes           = Column(String, nullable=True)
+
+
 class User(Base):
     __tablename__ = "users"
 

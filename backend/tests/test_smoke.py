@@ -62,6 +62,8 @@ def test_token_wrong_password(client):
     ("GET",  "/ml/predict"),
     ("POST", "/ml/train"),
     ("GET",  "/v2/entries/2026-01-01/context"),
+    ("GET",  "/v2/medications/events"),
+    ("POST", "/v2/medications/events"),
 ])
 def test_protected_routes_require_auth(client, method, path):
     r = client.request(method, path)
@@ -273,6 +275,73 @@ def test_cycle_day_out_of_range_rejected(client, auth_headers):
     client.patch("/v2/profile", json={"tracks_cycle": True}, headers=auth_headers)
     r = client.post("/entries/", json={**_BASE_ENTRY, "cycle_day_of_period": 61}, headers=auth_headers)
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Medication events
+# ---------------------------------------------------------------------------
+
+_BASE_MED_EVENT = {
+    "date": "2026-01-15",
+    "medication_name": "Methotrexate",
+    "event_type": "start",
+    "dose": "15mg weekly",
+}
+
+
+def test_create_medication_event(client, auth_headers):
+    r = client.post("/v2/medications/events", json=_BASE_MED_EVENT, headers=auth_headers)
+    assert r.status_code == 201
+    assert r.json()["medication_name"] == "Methotrexate"
+    assert r.json()["event_type"] == "start"
+    assert "id" in r.json()
+
+
+def test_list_medication_events(client, auth_headers):
+    client.post("/v2/medications/events", json=_BASE_MED_EVENT, headers=auth_headers)
+    r = client.get("/v2/medications/events", headers=auth_headers)
+    assert r.status_code == 200
+    assert len(r.json()) == 1
+
+
+def test_list_medication_events_date_range(client, auth_headers):
+    for evt_date, etype in [("2026-01-10", "start"), ("2026-02-01", "dose_increase"), ("2026-03-15", "stop")]:
+        client.post("/v2/medications/events", json={**_BASE_MED_EVENT, "date": evt_date, "event_type": etype}, headers=auth_headers)
+    assert len(client.get("/v2/medications/events?from=2026-02-01", headers=auth_headers).json()) == 2
+    assert len(client.get("/v2/medications/events?to=2026-02-01", headers=auth_headers).json()) == 2
+    assert len(client.get("/v2/medications/events?from=2026-01-10&to=2026-02-01", headers=auth_headers).json()) == 2
+
+
+def test_delete_medication_event(client, auth_headers):
+    event_id = client.post("/v2/medications/events", json=_BASE_MED_EVENT, headers=auth_headers).json()["id"]
+    assert client.delete(f"/v2/medications/events/{event_id}", headers=auth_headers).status_code == 204
+    assert len(client.get("/v2/medications/events", headers=auth_headers).json()) == 0
+
+
+def test_delete_nonexistent_medication_event(client, auth_headers):
+    assert client.delete("/v2/medications/events/9999", headers=auth_headers).status_code == 404
+
+
+def test_invalid_event_type_rejected(client, auth_headers):
+    assert client.post("/v2/medications/events", json={**_BASE_MED_EVENT, "event_type": "invalid"}, headers=auth_headers).status_code == 422
+
+
+def test_medication_name_too_long(client, auth_headers):
+    assert client.post("/v2/medications/events", json={**_BASE_MED_EVENT, "medication_name": "x" * 201}, headers=auth_headers).status_code == 422
+
+
+def test_dose_too_long(client, auth_headers):
+    assert client.post("/v2/medications/events", json={**_BASE_MED_EVENT, "dose": "x" * 101}, headers=auth_headers).status_code == 422
+
+
+def test_export_includes_medication_events(client, auth_headers):
+    client.post("/v2/medications/events", json=_BASE_MED_EVENT, headers=auth_headers)
+    r = client.get("/entries/export", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert "medication_events" in data
+    assert len(data["medication_events"]) == 1
+    assert data["medication_events"][0]["medication_name"] == "Methotrexate"
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel, field_validator, model_validator
@@ -257,3 +258,48 @@ class WeatherCaptureRead(BaseModel):
 class EntryContextResponse(BaseModel):
     entry: Optional[Entry] = None
     weather: Optional[WeatherCaptureRead] = None
+
+
+class MedicationEventType(str, Enum):
+    start         = "start"
+    stop          = "stop"
+    dose_increase = "dose_increase"
+    dose_decrease = "dose_decrease"
+    switch        = "switch"
+
+
+class MedicationEventCreate(BaseModel):
+    date:            str
+    medication_name: str
+    event_type:      MedicationEventType
+    dose:            Optional[str] = None
+    notes:           Optional[str] = None
+
+    @field_validator("medication_name", mode="after")
+    @classmethod
+    def validate_medication_name(cls, v):
+        if not v.strip():
+            raise ValueError("medication_name cannot be blank")
+        if len(v) > 200:
+            raise ValueError("medication_name must be 200 characters or fewer")
+        return v
+
+    @field_validator("dose", mode="after")
+    @classmethod
+    def validate_dose(cls, v):
+        if v is not None and len(v) > 100:
+            raise ValueError("dose must be 100 characters or fewer")
+        return v
+
+
+class MedicationEventRead(BaseModel):
+    id:              int
+    user_id:         int
+    date:            str
+    recorded_at:     datetime
+    medication_name: str
+    event_type:      str
+    dose:            Optional[str] = None
+    notes:           Optional[str] = None
+
+    model_config = {"from_attributes": True}

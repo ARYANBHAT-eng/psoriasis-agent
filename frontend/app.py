@@ -435,3 +435,46 @@ if pred_res.status_code == 200:
         st.write(f"• {f}")
 else:
     st.warning("Model not trained yet")
+
+# MEDICATION EVENTS
+st.divider()
+st.subheader("Medication Events")
+
+with st.form("med_event_form", clear_on_submit=True):
+    mc1, mc2, mc3 = st.columns(3)
+    with mc1:
+        med_date = st.date_input("Date", value=date.today(), key="med_date")
+        med_name = st.text_input("Medication name")
+    with mc2:
+        med_type = st.selectbox("Event type", ["start", "stop", "dose_increase", "dose_decrease", "switch"])
+        med_dose = st.text_input("Dose (optional, e.g. '15mg weekly')")
+    with mc3:
+        med_notes = st.text_input("Notes (optional)")
+    med_submitted = st.form_submit_button("Log Event")
+
+if med_submitted and med_name.strip():
+    med_payload = {
+        "date": str(med_date),
+        "medication_name": med_name.strip(),
+        "event_type": med_type,
+    }
+    if med_dose.strip():
+        med_payload["dose"] = med_dose.strip()
+    if med_notes.strip():
+        med_payload["notes"] = med_notes.strip()
+    med_res = requests.post(f"{API_BASE}/v2/medications/events", json=med_payload, headers=_headers())
+    if _handle_401(med_res):
+        st.stop()
+    if med_res.status_code == 201:
+        st.success("Event logged")
+    else:
+        st.error(med_res.text)
+
+med_list_res = requests.get(f"{API_BASE}/v2/medications/events", headers=_headers(), timeout=5)
+if med_list_res.status_code == 200:
+    med_events = med_list_res.json()
+    if med_events:
+        med_df = pd.DataFrame(med_events)[["date", "medication_name", "event_type", "dose", "notes"]]
+        st.dataframe(med_df.sort_values("date", ascending=False), use_container_width=True)
+    else:
+        st.caption("No medication events logged yet.")
